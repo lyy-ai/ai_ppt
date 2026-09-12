@@ -1,0 +1,1430 @@
+{
+  "version": 2,
+  "updated": "2026-07-07",
+  "stats": {
+    "examples": 21,
+    "pages": 204,
+    "templates": 21
+  },
+  "projects": [
+    {
+      "id": "edge-intelligence",
+      "title": "边缘智能：从云端到现场",
+      "description": "边缘计算工程蓝图，讲清延迟、部署与生命周期。",
+      "icon": "",
+      "color": "#132B3A",
+      "style": "technical",
+      "styleName": "Engineering Blueprint",
+      "desc": "边缘计算工程蓝图，讲清延迟、部署与生命周期。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-edge-intelligence/edge-intelligence_ppt169_20260704/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "02_window.svg",
+          "title": "第 2 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "03_continuum.svg",
+          "title": "第 3 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "04_latency.svg",
+          "title": "第 4 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "05_architecture.svg",
+          "title": "第 5 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "06_tradeoffs.svg",
+          "title": "第 6 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "07_placement.svg",
+          "title": "第 7 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "08_lifecycle.svg",
+          "title": "第 8 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "09_roadmap.svg",
+          "title": "第 9 页",
+          "desc": "边缘智能：从云端到现场"
+        },
+        {
+          "file": "10_conclusion.svg",
+          "title": "第 10 页",
+          "desc": "边缘智能：从云端到现场"
+        }
+      ]
+    },
+    {
+      "id": "spatial-robotics",
+      "title": "空间机器人系统图谱",
+      "description": "白色实验室系统图，拆解感知、定位、规划与执行。",
+      "icon": "",
+      "color": "#2D6A73",
+      "style": "technical",
+      "styleName": "Laboratory Systems",
+      "desc": "白色实验室系统图，拆解感知、定位、规划与执行。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-spatial-robotics/spatial-robotics_ppt169_20260704/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "02_stack.svg",
+          "title": "第 2 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "03_fusion.svg",
+          "title": "第 3 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "04_world_model.svg",
+          "title": "第 4 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "05_loop.svg",
+          "title": "第 5 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "06_planning_control.svg",
+          "title": "第 6 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "07_safety.svg",
+          "title": "第 7 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "08_evaluation.svg",
+          "title": "第 8 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "09_roadmap.svg",
+          "title": "第 9 页",
+          "desc": "空间机器人系统图谱"
+        },
+        {
+          "file": "10_conclusion.svg",
+          "title": "第 10 页",
+          "desc": "空间机器人系统图谱"
+        }
+      ]
+    },
+    {
+      "id": "lakehouse-handbook",
+      "title": "Lakehouse 工程手册",
+      "description": "终端绿黑风的数据平台架构与治理手册。",
+      "icon": "",
+      "color": "#0C6B4F",
+      "style": "technical",
+      "styleName": "Terminal Handbook",
+      "desc": "终端绿黑风的数据平台架构与治理手册。",
+      "tags": [
+        "PPT Master",
+        "9 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-lakehouse-handbook/lakehouse-handbook_ppt169_20260704/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "02_architecture.svg",
+          "title": "第 2 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "03_why_lakehouse.svg",
+          "title": "第 3 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "04_medallion.svg",
+          "title": "第 4 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "05_batch_stream.svg",
+          "title": "第 5 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "06_table_format.svg",
+          "title": "第 6 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "07_governance.svg",
+          "title": "第 7 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "08_migration.svg",
+          "title": "第 8 页",
+          "desc": "Lakehouse 工程手册"
+        },
+        {
+          "file": "09_conclusion.svg",
+          "title": "第 9 页",
+          "desc": "Lakehouse 工程手册"
+        }
+      ]
+    },
+    {
+      "id": "event-driven",
+      "title": "事件驱动架构实践",
+      "description": "洋红拓扑风的事件流、解耦与可观测性案例。",
+      "icon": "",
+      "color": "#7A3EF0",
+      "style": "technical",
+      "styleName": "Event Topology",
+      "desc": "洋红拓扑风的事件流、解耦与可观测性案例。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-event-driven/event-driven-architecture_ppt169_20260704/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "02_coupling.svg",
+          "title": "第 2 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "03_calls_to_events.svg",
+          "title": "第 3 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "04_backbone.svg",
+          "title": "第 4 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "05_delivery.svg",
+          "title": "第 5 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "06_semantics.svg",
+          "title": "第 6 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "07_observability.svg",
+          "title": "第 7 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "08_health.svg",
+          "title": "第 8 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "09_migration.svg",
+          "title": "第 9 页",
+          "desc": "事件驱动架构实践"
+        },
+        {
+          "file": "10_conclusion.svg",
+          "title": "第 10 页",
+          "desc": "事件驱动架构实践"
+        }
+      ]
+    },
+    {
+      "id": "sea-energy-growth",
+      "title": "海上新能源增长战略",
+      "description": "蓝白高层咨询风，覆盖市场、能力与增长路线图。",
+      "icon": "",
+      "color": "#176B9B",
+      "style": "consulting",
+      "styleName": "Executive Strategy",
+      "desc": "蓝白高层咨询风，覆盖市场、能力与增长路线图。",
+      "tags": [
+        "PPT Master",
+        "11 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-sea-energy-growth/sea-energy-growth_ppt169_20260704/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "02_recommendation.svg",
+          "title": "第 2 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "03_country_screen.svg",
+          "title": "第 3 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "04_demand_pools.svg",
+          "title": "第 4 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "05_value_pool.svg",
+          "title": "第 5 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "06_entry_model.svg",
+          "title": "第 6 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "07_channel.svg",
+          "title": "第 7 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "08_unit_economics.svg",
+          "title": "第 8 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "09_risks.svg",
+          "title": "第 9 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "10_roadmap.svg",
+          "title": "第 10 页",
+          "desc": "海上新能源增长战略"
+        },
+        {
+          "file": "11_decision.svg",
+          "title": "第 11 页",
+          "desc": "海上新能源增长战略"
+        }
+      ]
+    },
+    {
+      "id": "coffee-city-growth",
+      "title": "城市咖啡增长地图",
+      "description": "暖红零售分析风，拆解门店、客群与城市扩张。",
+      "icon": "",
+      "color": "#C54B3C",
+      "style": "consulting",
+      "styleName": "Retail Analytics",
+      "desc": "暖红零售分析风，拆解门店、客群与城市扩张。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-coffee-growth/coffee-city-growth_ppt169_20260705/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "02_recommendation.svg",
+          "title": "第 2 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "03_city_screen.svg",
+          "title": "第 3 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "04_portfolio.svg",
+          "title": "第 4 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "05_flywheel.svg",
+          "title": "第 5 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "06_formats.svg",
+          "title": "第 6 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "07_economics.svg",
+          "title": "第 7 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "08_cohort.svg",
+          "title": "第 8 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "09_roadmap.svg",
+          "title": "第 9 页",
+          "desc": "城市咖啡增长地图"
+        },
+        {
+          "file": "10_decision.svg",
+          "title": "第 10 页",
+          "desc": "城市咖啡增长地图"
+        }
+      ]
+    },
+    {
+      "id": "factory-energy",
+      "title": "工厂能源转型路线图",
+      "description": "工业运营风的能耗诊断、改造优先级与实施节奏。",
+      "icon": "",
+      "color": "#52606D",
+      "style": "consulting",
+      "styleName": "Industrial Operations",
+      "desc": "工业运营风的能耗诊断、改造优先级与实施节奏。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-factory-energy/factory-energy-roadmap_ppt169_20260705/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "02_baseline.svg",
+          "title": "第 2 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "03_balance.svg",
+          "title": "第 3 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "04_pareto.svg",
+          "title": "第 4 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "05_levers.svg",
+          "title": "第 5 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "06_portfolio.svg",
+          "title": "第 6 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "07_economics.svg",
+          "title": "第 7 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "08_control.svg",
+          "title": "第 8 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "09_roadmap.svg",
+          "title": "第 9 页",
+          "desc": "工厂能源转型路线图"
+        },
+        {
+          "file": "10_decision.svg",
+          "title": "第 10 页",
+          "desc": "工厂能源转型路线图"
+        }
+      ]
+    },
+    {
+      "id": "county-tourism",
+      "title": "县域文旅焕新策略",
+      "description": "青绿朱红的文化策略提案，连接资源、产品与运营。",
+      "icon": "",
+      "color": "#1D7A73",
+      "style": "consulting",
+      "styleName": "Cultural Strategy",
+      "desc": "青绿朱红的文化策略提案，连接资源、产品与运营。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-county-tourism/county-tourism-renewal_ppt169_20260705/svg_final",
+      "cover": "01_cover.svg",
+      "slides": [
+        {
+          "file": "01_cover.svg",
+          "title": "封面",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "02_recommendation.svg",
+          "title": "第 2 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "03_segments.svg",
+          "title": "第 3 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "04_narrative.svg",
+          "title": "第 4 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "05_portfolio.svg",
+          "title": "第 5 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "06_journeys.svg",
+          "title": "第 6 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "07_calendar.svg",
+          "title": "第 7 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "08_investment.svg",
+          "title": "第 8 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "09_roadmap.svg",
+          "title": "第 9 页",
+          "desc": "县域文旅焕新策略"
+        },
+        {
+          "file": "10_decision.svg",
+          "title": "第 10 页",
+          "desc": "县域文旅焕新策略"
+        }
+      ]
+    },
+    {
+      "id": "product-review",
+      "title": "2026 产品团队年度复盘",
+      "description": "企业复盘风，包含 KPI、留存、失败经验与路线图。",
+      "icon": "",
+      "color": "#3159D9",
+      "style": "general",
+      "styleName": "Product Review",
+      "desc": "企业复盘风，包含 KPI、留存、失败经验与路线图。",
+      "tags": [
+        "PPT Master",
+        "9 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-product-review/product-team-review_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "2026 产品团队年度复盘"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "2026 产品团队年度复盘"
+        }
+      ]
+    },
+    {
+      "id": "ai-camp",
+      "title": "新员工 AI 协作训练营",
+      "description": "模块化教学卡与工作坊任务，覆盖协作与安全边界。",
+      "icon": "",
+      "color": "#246BFD",
+      "style": "general",
+      "styleName": "Learning Workshop",
+      "desc": "模块化教学卡与工作坊任务，覆盖协作与安全边界。",
+      "tags": [
+        "PPT Master",
+        "8 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-ai-camp/ai-collaboration-camp_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "新员工 AI 协作训练营"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "新员工 AI 协作训练营"
+        }
+      ]
+    },
+    {
+      "id": "aurora-launch",
+      "title": "Aurora 智能耳机发布会",
+      "description": "黑色舞台与冰蓝产品光的科技新品发布会。",
+      "icon": "",
+      "color": "#20C7E8",
+      "style": "creative",
+      "styleName": "Product Keynote",
+      "desc": "黑色舞台与冰蓝产品光的科技新品发布会。",
+      "tags": [
+        "PPT Master",
+        "8 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-aurora-launch/aurora-headphones-launch_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "Aurora 智能耳机发布会"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "Aurora 智能耳机发布会"
+        }
+      ]
+    },
+    {
+      "id": "island-hotel",
+      "title": "海岛酒店改造项目汇报",
+      "description": "建筑蓝图式改造提案，包含总图、剖面与分期投资。",
+      "icon": "",
+      "color": "#164B63",
+      "style": "consulting",
+      "styleName": "Architecture Brief",
+      "desc": "建筑蓝图式改造提案，包含总图、剖面与分期投资。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-island-hotel/island-hotel-renovation_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "海岛酒店改造项目汇报"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "海岛酒店改造项目汇报"
+        }
+      ]
+    },
+    {
+      "id": "neon-tide",
+      "title": "NEON TIDE 城市音乐节",
+      "description": "酸性霓虹海报语言的阵容、舞台、时刻表与售票方案。",
+      "icon": "",
+      "color": "#FF2BB5",
+      "style": "creative",
+      "styleName": "Acid Festival",
+      "desc": "酸性霓虹海报语言的阵容、舞台、时刻表与售票方案。",
+      "tags": [
+        "PPT Master",
+        "8 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-neon-tide/neon-tide-city-music-festival_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "NEON TIDE 城市音乐节"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "NEON TIDE 城市音乐节"
+        }
+      ]
+    },
+    {
+      "id": "bookstore-seasons",
+      "title": "一间独立书店的四季",
+      "description": "拼贴杂志式书店经营日志，记录街区关系与四季节奏。",
+      "icon": "",
+      "color": "#7B4058",
+      "style": "editorial",
+      "styleName": "Collage Zine",
+      "desc": "拼贴杂志式书店经营日志，记录街区关系与四季节奏。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-bookstore-seasons/independent-bookstore-seasons_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "一间独立书店的四季"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "一间独立书店的四季"
+        }
+      ]
+    },
+    {
+      "id": "shanhai-scent",
+      "title": "山海香气实验室",
+      "description": "东方矿物香氛档案，以石、盐、木、雾建立材料谱。",
+      "icon": "",
+      "color": "#64877C",
+      "style": "creative",
+      "styleName": "Mineral Fragrance",
+      "desc": "东方矿物香氛档案，以石、盐、木、雾建立材料谱。",
+      "tags": [
+        "PPT Master",
+        "9 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-shanhai-scent-lab/shanhai-scent-lab_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "山海香气实验室"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "山海香气实验室"
+        }
+      ]
+    },
+    {
+      "id": "sneaker-materials",
+      "title": "未来运动鞋材料档案",
+      "description": "工业材料样本册，比较泡棉、菌丝、针织与模块外底。",
+      "icon": "",
+      "color": "#145DA0",
+      "style": "technical",
+      "styleName": "Material Archive",
+      "desc": "工业材料样本册，比较泡棉、菌丝、针织与模块外底。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-future-sneaker-materials/future-sneaker-materials-archive_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "未来运动鞋材料档案"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "未来运动鞋材料档案"
+        }
+      ]
+    },
+    {
+      "id": "timber-revival",
+      "title": "木构建筑的当代复兴",
+      "description": "建筑杂志版式，连接传统木作、工程木与循环建造。",
+      "icon": "",
+      "color": "#20342C",
+      "style": "editorial",
+      "styleName": "Architecture Magazine",
+      "desc": "建筑杂志版式，连接传统木作、工程木与循环建造。",
+      "tags": [
+        "PPT Master",
+        "11 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-timber-revival/timber-architecture-revival_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "木构建筑的当代复兴"
+        },
+        {
+          "file": "slide_11.svg",
+          "title": "第 11 页",
+          "desc": "木构建筑的当代复兴"
+        }
+      ]
+    },
+    {
+      "id": "night-economy",
+      "title": "中国夜间经济观察",
+      "description": "数据新闻风，分析时间曲线、交通边界与夜间治理。",
+      "icon": "",
+      "color": "#22D3A7",
+      "style": "editorial",
+      "styleName": "Data Journalism",
+      "desc": "数据新闻风，分析时间曲线、交通边界与夜间治理。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-night-economy/china-night-economy_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "中国夜间经济观察"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "中国夜间经济观察"
+        }
+      ]
+    },
+    {
+      "id": "cocoa-climate",
+      "title": "可可、气候与一块巧克力",
+      "description": "长篇新闻叙事，追踪气候风险如何穿过可可供应链。",
+      "icon": "",
+      "color": "#4B2230",
+      "style": "editorial",
+      "styleName": "Longform Report",
+      "desc": "长篇新闻叙事，追踪气候风险如何穿过可可供应链。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-cocoa-climate/cocoa-climate-chocolate_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "可可、气候与一块巧克力"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "可可、气候与一块巧克力"
+        }
+      ]
+    },
+    {
+      "id": "county-market",
+      "title": "被重新发明的县城菜市场",
+      "description": "人文编辑风，观察空间更新、摊贩生计与公共生活。",
+      "icon": "",
+      "color": "#176B63",
+      "style": "editorial",
+      "styleName": "Humanist Editorial",
+      "desc": "人文编辑风，观察空间更新、摊贩生计与公共生活。",
+      "tags": [
+        "PPT Master",
+        "10 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-county-market/reinvented-county-market_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "被重新发明的县城菜市场"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "被重新发明的县城菜市场"
+        }
+      ]
+    },
+    {
+      "id": "living-trends-2027",
+      "title": "2027 居住方式趋势报告",
+      "description": "高端趋势年鉴，讨论弹性空间、健康、科技与街区服务。",
+      "icon": "",
+      "color": "#243B53",
+      "style": "general",
+      "styleName": "Trend Yearbook",
+      "desc": "高端趋势年鉴，讨论弹性空间、健康、科技与街区服务。",
+      "tags": [
+        "PPT Master",
+        "11 slides"
+      ],
+      "isNew": true,
+      "folder": "owned-living-trends-2027/living-trends-2027_ppt169_20260706/svg_final",
+      "cover": "slide_01.svg",
+      "slides": [
+        {
+          "file": "slide_01.svg",
+          "title": "封面",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_02.svg",
+          "title": "第 2 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_03.svg",
+          "title": "第 3 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_04.svg",
+          "title": "第 4 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_05.svg",
+          "title": "第 5 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_06.svg",
+          "title": "第 6 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_07.svg",
+          "title": "第 7 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_08.svg",
+          "title": "第 8 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_09.svg",
+          "title": "第 9 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_10.svg",
+          "title": "第 10 页",
+          "desc": "2027 居住方式趋势报告"
+        },
+        {
+          "file": "slide_11.svg",
+          "title": "第 11 页",
+          "desc": "2027 居住方式趋势报告"
+        }
+      ]
+    }
+  ]
+}

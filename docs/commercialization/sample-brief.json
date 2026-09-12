@@ -1,0 +1,26 @@
+{
+  "scenario": "executive_report",
+  "audience": "investor",
+  "goal": "persuade",
+  "page_count": 6,
+  "language": "zh-CN",
+  "tone": "concise_professional",
+  "style": "business_dark",
+  "include_speaker_notes": true,
+  "include_charts": false,
+  "include_images": false,
+  "source_files": ["docs/commercialization/sample-source.md"],
+  "source_text": "",
+  "must_include": [
+    "User uploads text or documents",
+    "Assistant guides the user to a constrained brief",
+    "Backend worker generates an editable PPTX draft",
+    "No IDE is required on the server"
+  ],
+  "avoid": [
+    "Complex local editing in phase one",
+    "Long-running interactive IDE agent sessions",
+    "Overpromising fully autonomous design quality"
+  ],
+  "user_notes": "Make it feel like a commercial SaaS product pitch. Emphasize first-draft generation and download, not local editing."
+}

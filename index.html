@@ -1,0 +1,3444 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Best PPT — AI generates natively editable PPTX from any document</title>
+    <meta name="description" content="Drop in a PDF, DOCX, URL, or Markdown — get back a natively editable PowerPoint with real shapes, speaker notes, visuals, and narrated exports.">
+    <meta property="og:title" content="Best PPT — AI generates natively editable PPTX">
+    <meta property="og:description" content="Drop in any document, get back a natively editable PowerPoint with real shapes, real text boxes, and real charts. Not images. Click anything and edit it.">
+    <meta property="og:image" content="https://ppt.aigcstory.site/assets/og-best-ppt.png">
+    <meta property="og:url" content="https://ppt.aigcstory.site/">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Best PPT — AI generates natively editable PPTX">
+    <meta name="twitter:description" content="Drop in any document, get back a natively editable PowerPoint with real shapes, notes, and download-ready exports.">
+    <meta name="twitter:image" content="https://ppt.aigcstory.site/assets/og-best-ppt.png">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 32' fill='none' stroke='%235b8def' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='2' width='44' height='28' rx='2.5'/><line x1='9' y1='11' x2='22' y2='11'/><line x1='9' y1='17' x2='32' y2='17'/><line x1='9' y1='23' x2='26' y2='23'/></svg>">
+    <style>
+        :root {
+            /* Editorial dark — single accent, neutral surfaces */
+            --primary: #5b8def;
+            --primary-light: #88aaff;
+            --secondary: #5b8def;
+            --dark: #161618;
+            --darker: #0d0d0f;
+            --text: #e6e6e9;
+            --text-muted: #8a8a93;
+            --surface: #16161a;
+            --surface-hover: #1d1d20;
+            --border: #26262a;
+            --success: #5b8def;
+            --warning: #5b8def;
+            --accent: #5b8def;
+        }
+
+        html[data-theme="light"] {
+            --primary: #4f7de8;
+            --primary-light: #6f8fe8;
+            --secondary: #4f7de8;
+            --dark: #ffffff;
+            --darker: #f6f7fb;
+            --text: #15171d;
+            --text-muted: #697181;
+            --surface: #ffffff;
+            --surface-hover: #f2f4f8;
+            --border: #e3e7ef;
+            --success: #238f68;
+            --warning: #ad7c24;
+            --accent: #4f7de8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: var(--darker);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+        }
+
+        /* Header */
+        .header {
+            background: var(--darker);
+            padding: 120px 20px 80px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -300px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 1100px;
+            height: 700px;
+            background: radial-gradient(circle, rgba(91, 141, 239, 0.12) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 1;
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .site-nav {
+            position: absolute;
+            z-index: 4;
+            top: 18px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .brand-lockup {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+            font-weight: 850;
+            text-decoration: none;
+        }
+
+        .brand-lockup svg {
+            width: 34px;
+            height: auto;
+            color: var(--primary);
+        }
+
+        .site-links {
+            display: flex;
+            align-items: center;
+            gap: 22px;
+        }
+
+        .site-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 750;
+        }
+
+        .site-links a:hover {
+            color: var(--text);
+        }
+
+        .home-actions {
+            position: static;
+            z-index: 3;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .home-select,
+        .home-action-btn {
+            height: 42px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(22, 22, 26, 0.82);
+            color: var(--text);
+            font: inherit;
+            font-size: 0.86rem;
+        }
+
+        .home-select {
+            padding: 0 10px;
+        }
+
+        .home-action-btn {
+            min-width: 120px;
+            padding: 0 18px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        html[data-theme="light"] .home-select,
+        html[data-theme="light"] .home-action-btn {
+            background: rgba(255, 255, 255, 0.88);
+            color: var(--text);
+        }
+
+        .home-action-btn:hover {
+            background: var(--surface-hover);
+        }
+
+        .home-action-btn.primary {
+            border-color: transparent;
+            background: #2a1427;
+            color: #e8ff61;
+        }
+
+        .home-action-btn.primary:hover {
+            background: #361a32;
+        }
+
+        html[data-theme="light"] .home-action-btn.primary {
+            background: #15171d;
+            color: #ffffff;
+        }
+
+        html[data-theme="light"] .home-action-btn.primary:hover {
+            background: #2a2e37;
+        }
+
+        .theme-home-btn {
+            min-width: 92px;
+        }
+
+        .home-action-btn.account {
+            min-width: 0;
+            border-color: rgba(91, 141, 239, 0.34);
+            color: var(--primary-light);
+        }
+
+        .home-account-wrap {
+            position: relative;
+            display: inline-flex;
+        }
+
+        .home-account-menu {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            width: 238px;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: rgba(18, 18, 22, 0.98);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+            z-index: 30;
+        }
+
+        html[data-theme="light"] .home-account-menu {
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 18px 48px rgba(53, 70, 100, 0.16);
+        }
+
+        .home-account-menu[hidden] {
+            display: none;
+        }
+
+        .home-account-head {
+            padding: 8px 10px 10px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 6px;
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr);
+            column-gap: 10px;
+            align-items: center;
+        }
+
+        .home-account-avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            grid-row: span 2;
+            background: var(--primary);
+            background-size: cover;
+            background-position: center;
+            color: #fff;
+            font-weight: 900;
+            overflow: hidden;
+        }
+
+        .home-account-avatar.has-account-image {
+            color: transparent;
+        }
+
+        .home-account-name {
+            font-weight: 750;
+            color: var(--text);
+            word-break: break-word;
+            min-width: 0;
+        }
+
+        .home-account-meta {
+            margin-top: 4px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .home-account-item {
+            width: 100%;
+            height: 38px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            font-size: 0.86rem;
+            text-align: left;
+            padding: 0 10px;
+            cursor: pointer;
+        }
+
+        .home-account-item:hover {
+            background: var(--surface-hover);
+        }
+
+        .home-account-item.danger {
+            color: #ff9b9b;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            margin-bottom: 28px;
+            opacity: 0.95;
+        }
+
+        .logo svg {
+            width: 56px;
+            height: auto;
+        }
+
+        .eyebrow {
+            display: inline-block;
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface);
+        }
+
+        .header h1 {
+            font-size: 3.75rem;
+            font-weight: 700;
+            line-height: 1.05;
+            letter-spacing: -0.025em;
+            margin-bottom: 20px;
+            color: var(--text);
+        }
+
+        .hero-split {
+            display: grid;
+            grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.82fr);
+            gap: 48px;
+            align-items: center;
+            text-align: left;
+        }
+
+        .hero-copy {
+            max-width: 700px;
+        }
+
+        .hero-copy .logo {
+            margin-bottom: 20px;
+        }
+
+        .hero-copy .header-cta {
+            justify-content: flex-start;
+        }
+
+        .hero-visual {
+            border: 1px solid rgba(91, 141, 239, 0.18);
+            border-radius: 22px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
+                radial-gradient(circle at 70% 20%, rgba(91, 141, 239, 0.24), transparent 42%);
+            box-shadow: 0 30px 90px rgba(0, 0, 0, 0.38);
+            padding: 18px;
+            min-height: 390px;
+            overflow: hidden;
+        }
+
+        .mock-workbench {
+            height: 100%;
+            min-height: 352px;
+            display: grid;
+            grid-template-columns: 0.96fr 0.72fr;
+            gap: 12px;
+        }
+
+        .mock-slide,
+        .mock-panel {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            background: rgba(8, 9, 12, 0.72);
+        }
+
+        .mock-slide {
+            padding: 22px;
+            display: grid;
+            align-content: end;
+            gap: 16px;
+        }
+
+        .mock-slide-title {
+            font-size: 1.55rem;
+            line-height: 1.12;
+            font-weight: 900;
+            color: #f6f8ff;
+        }
+
+        .mock-lines {
+            display: grid;
+            gap: 8px;
+        }
+
+        .mock-lines span {
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .mock-lines span:nth-child(2) {
+            width: 78%;
+        }
+
+        .mock-lines span:nth-child(3) {
+            width: 56%;
+        }
+
+        .mock-panel {
+            padding: 16px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+
+        .mock-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+        }
+
+        .mock-chip {
+            border: 1px solid rgba(91, 141, 239, 0.32);
+            border-radius: 999px;
+            color: var(--primary-light);
+            background: rgba(91, 141, 239, 0.1);
+            padding: 6px 9px;
+            font-size: 0.72rem;
+            font-weight: 850;
+        }
+
+        .mock-prompt {
+            border-radius: 12px;
+            min-height: 120px;
+            padding: 14px;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.045);
+            font-size: 0.82rem;
+        }
+
+        .mock-progress {
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .mock-progress span {
+            display: block;
+            width: 72%;
+            height: 100%;
+            border-radius: inherit;
+            background: var(--primary);
+        }
+
+        .header p {
+            font-size: 1.15rem;
+            color: var(--text-muted);
+            max-width: 620px;
+            margin: 0 auto;
+            line-height: 1.55;
+        }
+
+        .header-cta {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 36px;
+            flex-wrap: wrap;
+        }
+
+        .cta-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 22px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+            border: 1px solid transparent;
+            cursor: pointer;
+            letter-spacing: -0.01em;
+        }
+
+        .cta-btn.primary {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .cta-btn.primary:hover {
+            background: #4a7be0;
+            transform: translateY(-1px);
+        }
+
+        .cta-btn.secondary {
+            background: transparent;
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        .cta-btn.secondary:hover {
+            background: var(--surface);
+            border-color: #3a3a40;
+            transform: translateY(-1px);
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: none;
+            place-items: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.58);
+            backdrop-filter: blur(10px);
+        }
+
+        .modal-backdrop.show {
+            display: grid;
+        }
+
+        .auth-modal {
+            width: min(920px, 100%);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--surface);
+            box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+            display: grid;
+            grid-template-columns: minmax(320px, 0.9fr) minmax(320px, 1.1fr);
+            overflow: hidden;
+            text-align: left;
+        }
+
+        .auth-panel {
+            padding: 34px;
+            background: #f7f8fb;
+            color: #18181b;
+        }
+
+        .auth-visual {
+            position: relative;
+            min-height: 520px;
+            padding: 42px;
+            background:
+                radial-gradient(circle at 72% 26%, rgba(255, 255, 255, 0.92), transparent 16%),
+                linear-gradient(135deg, #dbeafe 0%, #8fc5ff 48%, #4f86ef 100%);
+            color: #1741c8;
+            overflow: hidden;
+        }
+
+        .auth-visual::after {
+            content: '';
+            position: absolute;
+            right: 70px;
+            bottom: 70px;
+            width: 230px;
+            height: 230px;
+            border-radius: 42px;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.36)),
+                linear-gradient(135deg, rgba(91, 141, 239, 0.3), rgba(53, 101, 214, 0.08));
+            box-shadow: 0 38px 70px rgba(18, 73, 170, 0.28);
+            transform: rotate(-8deg);
+        }
+
+        .auth-visual::before {
+            content: '';
+            position: absolute;
+            right: 130px;
+            bottom: 128px;
+            width: 112px;
+            height: 112px;
+            border-radius: 50%;
+            border: 18px solid rgba(23, 65, 200, 0.62);
+            border-left-color: transparent;
+            z-index: 1;
+        }
+
+        .auth-visual h3 {
+            position: relative;
+            z-index: 2;
+            margin: 0;
+            font-size: 2.4rem;
+            line-height: 1.15;
+            letter-spacing: 0;
+        }
+
+        .auth-visual p {
+            position: relative;
+            z-index: 2;
+            margin: 18px 0 0;
+            max-width: 360px;
+            color: rgba(23, 65, 200, 0.78);
+            font-size: 1.08rem;
+        }
+
+        .auth-modal h2 {
+            margin: 0 0 8px;
+            color: #18181b;
+            font-size: 1.55rem;
+        }
+
+        .auth-modal label {
+            display: block;
+            color: #6f717a;
+            font-size: 0.78rem;
+            margin: 12px 0 6px;
+        }
+
+        .auth-modal input {
+            width: 100%;
+            height: 44px;
+            border: 1px solid #dadde5;
+            border-radius: 8px;
+            background: #fff;
+            color: #18181b;
+            padding: 0 12px;
+            font: inherit;
+        }
+
+        .auth-field {
+            position: relative;
+        }
+
+        .auth-field input.has-action {
+            padding-right: 44px;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 32px;
+            height: 32px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #8a8d97;
+            display: grid;
+            place-items: center;
+            cursor: pointer;
+        }
+
+        .password-toggle:hover {
+            background: #f0f2f7;
+            color: #3155d4;
+        }
+
+        .auth-methods {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 18px;
+            padding: 4px;
+            border-radius: 10px;
+            background: #eef1f7;
+        }
+
+        .auth-method {
+            height: 36px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: #737782;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .auth-method.active {
+            background: #fff;
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(20, 27, 48, 0.08);
+        }
+
+        .auth-sms-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 116px;
+            gap: 8px;
+        }
+
+        .auth-secondary-btn {
+            height: 44px;
+            border: 1px solid #d7dbe6;
+            border-radius: 8px;
+            background: #fff;
+            color: #3155d4;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .auth-secondary-btn:disabled {
+            cursor: not-allowed;
+            color: #a2a7b3;
+            background: #f3f5f9;
+        }
+
+        .auth-kicker {
+            margin: 0 0 22px;
+            color: #7b7e87;
+            font-size: 0.92rem;
+        }
+
+        .auth-tabs {
+            display: flex;
+            gap: 28px;
+            margin-bottom: 22px;
+            border-bottom: 1px solid #e3e6ee;
+        }
+
+        .auth-tab {
+            border: 0;
+            background: transparent;
+            color: #7b7e87;
+            padding: 0 0 10px;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .auth-tab.active {
+            color: var(--primary);
+            box-shadow: 0 2px 0 var(--primary);
+        }
+
+        .auth-close-icon {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            width: 34px;
+            height: 34px;
+            border: 1px solid rgba(255, 255, 255, 0.46);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.22);
+            color: #1741c8;
+            font-size: 1.2rem;
+            cursor: pointer;
+            z-index: 3;
+        }
+
+        .remember-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            color: #7b7e87;
+            font-size: 0.84rem;
+        }
+
+        .remember-row input {
+            width: 16px;
+            height: 16px;
+            padding: 0;
+        }
+
+        .auth-actions {
+            display: grid;
+            gap: 10px;
+            margin-top: 24px;
+        }
+
+        .auth-message {
+            min-height: 20px;
+            margin-top: 12px;
+            color: #d64242;
+            font-size: 0.84rem;
+        }
+
+        .auth-switch {
+            margin-top: 18px;
+            text-align: center;
+            color: #7b7e87;
+            font-size: 0.9rem;
+        }
+
+        .auth-switch button {
+            border: 0;
+            background: transparent;
+            color: var(--primary);
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            margin-top: 56px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .stat {
+            text-align: center;
+            padding: 18px 32px;
+            border-right: 1px solid var(--border);
+        }
+
+        .stat:last-child {
+            border-right: none;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--text);
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+        }
+
+        .stat-label {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+
+        /* Navigation */
+        .nav {
+            background: rgba(13, 13, 15, 0.72);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 8px;
+            margin: 0 0 22px;
+        }
+
+        .nav-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            padding: 7px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+            letter-spacing: -0.005em;
+        }
+
+        .nav-btn:hover {
+            color: var(--text);
+            background: var(--surface);
+        }
+
+        .nav-btn.active {
+            color: var(--text);
+            background: var(--surface);
+            border-color: var(--border);
+        }
+
+        /* Main Content */
+        .main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 72px 20px 80px;
+        }
+
+        .section-block {
+            margin-bottom: 76px;
+        }
+
+        .section-kicker {
+            color: var(--primary-light);
+            font-size: 0.78rem;
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .section-heading {
+            max-width: 780px;
+            margin-bottom: 14px;
+            color: var(--text);
+            font-size: 2.15rem;
+            line-height: 1.12;
+            letter-spacing: -0.025em;
+        }
+
+        .section-lede {
+            max-width: 720px;
+            color: var(--text-muted);
+            font-size: 1rem;
+            margin-bottom: 28px;
+        }
+
+        .workflow-grid,
+        .feature-grid,
+        .advantage-grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .workflow-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .feature-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .advantage-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .info-card {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--surface);
+            padding: 22px;
+        }
+
+        .info-card-number,
+        .info-card-icon {
+            display: inline-grid;
+            place-items: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            margin-bottom: 18px;
+            color: var(--primary-light);
+            background: rgba(91, 141, 239, 0.12);
+            font-weight: 900;
+        }
+
+        .info-card h3 {
+            margin-bottom: 10px;
+            color: var(--text);
+            font-size: 1.05rem;
+            letter-spacing: -0.01em;
+        }
+
+        .info-card p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 28px;
+            color: var(--text);
+            letter-spacing: -0.015em;
+        }
+
+        .section-title .count {
+            font-size: 0.85rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            letter-spacing: 0;
+        }
+
+        /* Project Grid */
+        .examples-status {
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            border: 1px solid rgba(91, 141, 239, 0.24);
+            border-radius: 12px;
+            background: rgba(91, 141, 239, 0.08);
+            color: var(--text);
+            font-size: 0.92rem;
+            line-height: 1.5;
+        }
+
+        .examples-status strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.94rem;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+            gap: 20px;
+            margin-bottom: 50px;
+        }
+
+        .projects-grid > * {
+            min-width: 0;
+        }
+
+        .project-card {
+            display: block;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .project-card:hover {
+            transform: translateY(-3px);
+            border-color: #3a3a40;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+        }
+
+        .card-preview {
+            aspect-ratio: 16 / 9;
+            background: var(--darker);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: var(--darker);
+        }
+
+        .card-preview .placeholder {
+            font-size: 2.5rem;
+            opacity: 0.25;
+            color: var(--text-muted);
+        }
+
+        .card-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: var(--primary);
+            color: white;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .card-content {
+            padding: 18px 20px 20px;
+        }
+
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text);
+            line-height: 1.35;
+            letter-spacing: -0.01em;
+            overflow-wrap: anywhere;
+        }
+
+        .card-meta {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .card-meta span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .card-desc {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            line-height: 1.55;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+        }
+
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 14px;
+        }
+
+        .tag {
+            background: transparent;
+            padding: 3px 9px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            letter-spacing: -0.005em;
+        }
+
+        .tag.style-consulting,
+        .tag.style-general,
+        .tag.style-creative,
+        .tag.style-editorial {
+            background: rgba(91, 141, 239, 0.08);
+            color: var(--primary-light);
+            border-color: rgba(91, 141, 239, 0.22);
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--darker);
+            border-top: 1px solid var(--border);
+            padding: 48px 20px 40px;
+            text-align: center;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 28px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a,
+        .footer-link-btn {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.18s ease;
+            border: 0;
+            background: transparent;
+            font: inherit;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .footer-links a:hover,
+        .footer-link-btn:hover {
+            color: var(--text);
+        }
+
+        .footer-copy {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .footer-copy a {
+            color: var(--text);
+            text-decoration: none;
+            border-bottom: 1px solid var(--border);
+            transition: border-color 0.18s ease;
+        }
+
+        .footer-copy a:hover {
+            border-color: var(--text-muted);
+        }
+
+        .contact-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 24px;
+            margin-top: 34px;
+        }
+
+        .contact-card {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--surface);
+            min-height: 270px;
+            padding: 34px 22px 28px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .contact-icon {
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            color: var(--text);
+            font-size: 1.7rem;
+        }
+
+        .contact-card h3 {
+            margin: 0;
+            font-size: 1.02rem;
+            color: var(--text);
+        }
+
+        .contact-value {
+            color: var(--text);
+            font-weight: 750;
+            word-break: break-word;
+        }
+
+        .contact-note {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.88rem;
+        }
+
+        #contact-modal .contact-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 28px;
+        }
+
+        #contact-modal .contact-card {
+            min-height: 300px;
+            padding: 28px 18px 24px;
+        }
+
+        #contact-modal .contact-card p {
+            margin: 0;
+            color: #6f717a;
+            font-size: 0.9rem;
+            line-height: 1.65;
+            overflow-wrap: normal;
+            word-break: normal;
+        }
+
+        .qr-box {
+            width: 170px;
+            max-width: 100%;
+            aspect-ratio: 1;
+            margin: 2px auto 4px;
+            border: 1px dashed var(--border-strong, var(--border));
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            color: var(--text-muted);
+            background: var(--darker);
+            overflow: hidden;
+            padding: 12px;
+            font-size: 0.86rem;
+        }
+
+        html[data-theme="light"] .qr-box {
+            background: #fff;
+        }
+
+        .qr-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #fff;
+        }
+
+        @media (max-width: 640px) {
+            .contact-grid {
+                grid-template-columns: 1fr;
+            }
+
+            #contact-modal .contact-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .site-nav {
+                position: relative;
+                top: auto;
+                left: auto;
+                right: auto;
+                margin: 0 14px 28px;
+                flex-wrap: wrap;
+            }
+
+            .site-links {
+                order: 3;
+                width: 100%;
+                justify-content: center;
+                gap: 14px;
+                flex-wrap: wrap;
+            }
+
+            .home-actions {
+                justify-content: flex-end;
+                flex-wrap: wrap;
+            }
+
+            .home-action-btn {
+                min-width: 96px;
+                padding: 0 12px;
+            }
+
+            .header {
+                padding: 22px 20px 60px;
+            }
+
+            .hero-split {
+                grid-template-columns: 1fr;
+                gap: 28px;
+                text-align: center;
+            }
+
+            .hero-copy {
+                margin: 0 auto;
+            }
+
+            .hero-copy .header-cta {
+                justify-content: center;
+            }
+
+            .header h1 {
+                font-size: 2.25rem;
+            }
+
+            .header p {
+                font-size: 1rem;
+            }
+
+            .header-cta {
+                flex-direction: column;
+                align-items: stretch;
+                width: 100%;
+                max-width: 280px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .auth-modal {
+                grid-template-columns: 1fr;
+                max-height: calc(100vh - 28px);
+                overflow: auto;
+            }
+
+            .auth-panel {
+                padding: 26px;
+            }
+
+            .auth-visual {
+                min-height: 230px;
+                padding: 28px;
+                order: -1;
+            }
+
+            .auth-visual h3 {
+                max-width: 280px;
+                font-size: 1.55rem;
+            }
+
+            .auth-visual p {
+                max-width: 280px;
+                font-size: 0.95rem;
+            }
+
+            .auth-visual::after {
+                right: 22px;
+                bottom: 20px;
+                width: 120px;
+                height: 120px;
+                border-radius: 24px;
+            }
+
+            .auth-visual::before {
+                right: 58px;
+                bottom: 54px;
+                width: 54px;
+                height: 54px;
+                border-width: 9px;
+            }
+
+            .stats {
+                margin-top: 36px;
+                flex-wrap: wrap;
+            }
+
+            .stat {
+                flex: 1 1 45%;
+                padding: 14px 18px;
+            }
+
+            .stat-value {
+                font-size: 1.4rem;
+            }
+
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .workflow-grid,
+            .feature-grid,
+            .advantage-grid,
+            .mock-workbench {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-visual {
+                min-height: auto;
+            }
+
+            .section-heading {
+                font-size: 1.7rem;
+            }
+        }
+
+        /* Hidden class for filtering */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="header">
+        <div class="site-nav">
+            <a class="brand-lockup" href="#top" aria-label="Best PPT">
+                <svg viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="2" width="44" height="28" rx="2.5"/>
+                    <line x1="9" y1="11" x2="22" y2="11"/>
+                    <line x1="9" y1="17" x2="32" y2="17"/>
+                    <line x1="9" y1="23" x2="26" y2="23"/>
+                </svg>
+                <span>Best PPT</span>
+            </a>
+            <div class="site-links" aria-label="Page sections">
+                <a href="#section-workflow" data-i18n-home="navWorkflow">Workflow</a>
+                <a href="#section-product" data-i18n-home="navProduct">Product</a>
+                <a href="#section-showcase" data-i18n-home="navShowcase">Examples</a>
+                <a href="#section-contact" data-i18n-home="navContact">Contact</a>
+                <a href="https://yiang-ai-web-1.onrender.com/" target="_blank" rel="noopener" data-i18n-home="navOfficial">Official site</a>
+            </div>
+            <div class="home-actions">
+                <select class="home-select" id="home-language" aria-label="Language">
+                    <option value="en">English</option>
+                    <option value="zh-CN">中文</option>
+                </select>
+                <button class="home-action-btn theme-home-btn" type="button" id="home-theme-toggle">System</button>
+                <div class="home-account-wrap">
+                    <button class="home-action-btn" type="button" id="auth-login" data-auth-mode="login" data-i18n-home="loginButton" aria-expanded="false">Login</button>
+                    <div class="home-account-menu" id="home-account-menu" hidden>
+                        <div class="home-account-head">
+                            <div class="home-account-avatar" id="home-account-avatar">B</div>
+                            <div class="home-account-name" id="home-account-name">Best PPT</div>
+                            <div class="home-account-meta" id="home-account-meta">Free</div>
+                        </div>
+                        <button class="home-account-item" type="button" data-home-account-action="workspace" data-i18n-home="accountWorkspace">Open workbench</button>
+                        <button class="home-account-item" type="button" data-home-account-action="profile" data-i18n-home="accountProfile">Profile</button>
+                        <button class="home-account-item" type="button" data-home-account-action="membership" data-i18n-home="accountMembership">Membership and credits</button>
+                        <button class="home-account-item" type="button" data-home-account-action="invite" data-i18n-home="accountInvite">Invite friends</button>
+                        <button class="home-account-item" type="button" data-home-account-action="docs" data-i18n-home="accountDocs">Guide</button>
+                        <button class="home-account-item" type="button" data-home-account-action="contact" data-i18n-home="accountContact">Contact us</button>
+                        <button class="home-account-item danger" type="button" data-home-account-action="logout" data-i18n-home="accountLogout">Sign out</button>
+                    </div>
+                </div>
+                <button class="home-action-btn primary" type="button" id="auth-register" data-auth-mode="register" data-i18n-home="signupButton">Sign up here</button>
+            </div>
+        </div>
+        <div class="header-content">
+            <div class="hero-split">
+                <div class="hero-copy">
+                    <div class="logo" aria-hidden="true">
+                        <svg viewBox="0 0 48 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="2" width="44" height="28" rx="2.5"/>
+                            <line x1="9" y1="11" x2="22" y2="11"/>
+                            <line x1="9" y1="17" x2="32" y2="17"/>
+                            <line x1="9" y1="23" x2="26" y2="23"/>
+                        </svg>
+                    </div>
+                    <div class="eyebrow" data-i18n-home="eyebrow">AI PPT generation platform</div>
+                    <h1 data-i18n-home="heroTitle">From documents to editable PPTX in one AI workflow</h1>
+                    <p data-i18n-home="heroCopy">Upload PDFs, DOCX, URLs, or notes. Best PPT clarifies the brief, builds an outline, generates native PowerPoint slides, speaker notes, visuals, and narrated exports.</p>
+                    <div class="header-cta">
+                        <a href="cloud-generator.html" class="cta-btn primary" id="open-generator" data-i18n-home="openGenerator">Start creating →</a>
+                        <a href="#section-workflow" class="cta-btn secondary" data-i18n-home="seeWorkflow">See workflow</a>
+                    </div>
+                </div>
+                <div class="hero-visual" aria-hidden="true">
+                    <div class="mock-workbench">
+                        <div class="mock-slide">
+                            <div class="mock-slide-title" data-i18n-home="mockSlideTitle">Q3 Business Review</div>
+                            <div class="mock-lines">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        </div>
+                        <div class="mock-panel">
+                            <div class="mock-chip-row">
+                                <span class="mock-chip" data-i18n-home="mockChipRole">Executive</span>
+                                <span class="mock-chip" data-i18n-home="mockChipScene">Business report</span>
+                                <span class="mock-chip" data-i18n-home="mockChipTime">5 min</span>
+                            </div>
+                            <div class="mock-prompt" data-i18n-home="mockPrompt">Generate an investor-ready deck from Q3 materials, with clear logic and editable charts.</div>
+                            <div class="mock-progress"><span></span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="examples-count">...</div>
+                    <div class="stat-label" data-i18n-home="examplesLabel">Examples</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="pages-count">...</div>
+                    <div class="stat-label" data-i18n-home="pagesLabel">Pages</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="templates-count">...</div>
+                    <div class="stat-label" data-i18n-home="templatesLabel">Templates</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">PPTX</div>
+                    <div class="stat-label" data-i18n-home="editableLabel">Editable output</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <section class="section-block" id="section-workflow">
+            <div class="section-kicker" data-i18n-home="workflowKicker">End-to-end workflow</div>
+            <h2 class="section-heading" data-i18n-home="workflowTitle">From rough material to presentation-ready deck</h2>
+            <p class="section-lede" data-i18n-home="workflowText">Best PPT follows the same chain a human consultant would use: understand the brief, shape the outline, generate slides, then preview and download.</p>
+            <div class="workflow-grid">
+                <article class="info-card">
+                    <div class="info-card-number">1</div>
+                    <h3 data-i18n-home="workflow1Title">Upload or describe</h3>
+                    <p data-i18n-home="workflow1Text">Start from a prompt, PDF, DOCX, Markdown, URLs, or mixed source materials.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-number">2</div>
+                    <h3 data-i18n-home="workflow2Title">Confirm the plan</h3>
+                    <p data-i18n-home="workflow2Text">AI proposes audience, scene, length, structure, image advice, and speaker-note direction before generation.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-number">3</div>
+                    <h3 data-i18n-home="workflow3Title">Preview and export</h3>
+                    <p data-i18n-home="workflow3Text">Review the generated deck online, restore history, and download editable PPTX or narrated PPTX.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section-block" id="section-product">
+            <div class="section-kicker" data-i18n-home="productKicker">Product capabilities</div>
+            <h2 class="section-heading" data-i18n-home="productTitle">A PPT generator built for real work, not screenshots</h2>
+            <p class="section-lede" data-i18n-home="productText">The output is designed for business reuse: editable shapes, structured speaker notes, optional images, restrained animations, and account-based history.</p>
+            <div class="feature-grid">
+                <article class="info-card">
+                    <div class="info-card-icon">✦</div>
+                    <h3 data-i18n-home="feature1Title">Native PPTX</h3>
+                    <p data-i18n-home="feature1Text">Slides are exported as editable PowerPoint files with real text and shapes.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-icon">☰</div>
+                    <h3 data-i18n-home="feature2Title">Brief refinement</h3>
+                    <p data-i18n-home="feature2Text">The chat helps narrow audience, scene, tone, page count, and outline before the job starts.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-icon">◉</div>
+                    <h3 data-i18n-home="feature3Title">Visual generation</h3>
+                    <p data-i18n-home="feature3Text">Optional AI-generated visuals and search fallback help fill slides with relevant imagery.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-icon">↗</div>
+                    <h3 data-i18n-home="feature4Title">Speaker notes</h3>
+                    <p data-i18n-home="feature4Text">Each slide can include first-person narration-style notes for delivery.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-icon">▶</div>
+                    <h3 data-i18n-home="feature5Title">Narrated export</h3>
+                    <p data-i18n-home="feature5Text">Read-aloud mode produces a second PPTX with embedded narration and timings.</p>
+                </article>
+                <article class="info-card">
+                    <div class="info-card-icon">▣</div>
+                    <h3 data-i18n-home="feature6Title">Templates and history</h3>
+                    <p data-i18n-home="feature6Text">Restore previous tasks and reuse templates from the workbench.</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="section-block" id="section-showcase">
+            <div class="section-kicker" data-i18n-home="showcaseKicker">Examples</div>
+            <h2 class="section-heading" data-i18n-home="showcaseTitle">Reusable deck styles for different presentation scenes</h2>
+            <nav class="nav">
+                <div class="nav-content">
+                    <button class="nav-btn active" data-filter="all" data-i18n-home="filterAll">All</button>
+                    <button class="nav-btn" data-filter="technical" data-i18n-home="filterTechnical">Technical</button>
+                    <button class="nav-btn" data-filter="consulting" data-i18n-home="filterConsulting">Consulting</button>
+                    <button class="nav-btn" data-filter="general" data-i18n-home="filterGeneral">General</button>
+                    <button class="nav-btn" data-filter="creative" data-i18n-home="filterCreative">Creative</button>
+                    <button class="nav-btn" data-filter="editorial" data-i18n-home="filterEditorial">Editorial</button>
+                </div>
+            </nav>
+            <div class="examples-status hidden" id="examples-status" role="status" aria-live="polite"></div>
+            <div class="projects-grid" id="projects-grid">
+                <!-- Projects will be inserted here by JavaScript -->
+            </div>
+        </section>
+
+        <section class="section-block" id="section-contact">
+            <div class="section-kicker" data-i18n-home="contactKicker">Contact us</div>
+            <h2 class="section-heading" data-i18n-home="contactSectionTitle">Get in touch anytime</h2>
+            <p class="section-lede" data-i18n-home="contactSectionText">For product support, private deployment, templates, and workflow consulting, reach out to us directly.</p>
+            <div class="contact-grid">
+                <article class="contact-card">
+                    <div class="contact-icon" aria-hidden="true">☎</div>
+                    <h3 data-i18n-home="phoneContact">Phone</h3>
+                    <div class="contact-value">18611412651</div>
+                </article>
+                <article class="contact-card">
+                    <div class="contact-icon" aria-hidden="true">☁</div>
+                    <h3 data-i18n-home="wechatContact">WeChat</h3>
+                    <div class="qr-box" data-qr-src="assets/contact/wechat-qr.png"><span data-i18n-home="qrMissing">QR pending</span></div>
+                    <p class="contact-note" data-i18n-home="wechatContactText">Scan to add us on WeChat.</p>
+                </article>
+                <article class="contact-card">
+                    <div class="contact-icon" aria-hidden="true">✉</div>
+                    <h3 data-i18n-home="emailContact">Email</h3>
+                    <div class="contact-value">shenxiaodong@tsingtaoai.com</div>
+                    <p class="contact-note" data-i18n-home="emailContactText">We usually reply within 24 hours.</p>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-links">
+            <a href="docs/best-ppt-guide.html" target="_blank" rel="noopener noreferrer" data-i18n-home="footerDocs">User guide</a>
+            <a href="#section-workflow" data-i18n-home="footerWorkflow">Workflow</a>
+            <a href="#section-product" data-i18n-home="footerProduct">Capabilities</a>
+            <button class="footer-link-btn" type="button" id="footer-contact" data-i18n-home="footerContact">Contact us</button>
+        </div>
+        <p class="footer-copy">Best PPT © 2025–2026 · AI presentation generation platform</p>
+    </footer>
+
+    <div class="modal-backdrop" id="auth-modal">
+        <div class="auth-modal">
+            <section class="auth-panel">
+                <h2 id="auth-title" data-i18n-home="authTitleLogin">Sign in to Best PPT</h2>
+                <p class="auth-kicker" data-i18n-home="authKicker">Use one account for generation, credits, billing, and invitations.</p>
+                <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
+                    <button class="auth-tab active" type="button" data-auth-tab="login" data-i18n-home="authTabLogin">Password login</button>
+                    <button class="auth-tab" type="button" data-auth-tab="register" data-i18n-home="authTabRegister">Create account</button>
+                </div>
+                <div class="auth-methods" role="tablist" aria-label="Sign in method">
+                    <button class="auth-method active" type="button" data-auth-method="email" data-i18n-home="authMethodEmail">Email</button>
+                    <button class="auth-method" type="button" data-auth-method="phone" data-i18n-home="authMethodPhone">Phone code</button>
+                </div>
+                <div id="auth-email-fields">
+                    <label for="auth-email" data-i18n-home="emailLabel">Email</label>
+                    <input id="auth-email" type="email" autocomplete="email" data-i18n-placeholder="emailPlaceholder" placeholder="name@example.com">
+                    <label for="auth-password" data-i18n-home="passwordLabel">Password</label>
+                    <div class="auth-field">
+                        <input id="auth-password" class="has-action" type="password" autocomplete="current-password" data-i18n-placeholder="passwordPlaceholder" placeholder="At least 6 characters">
+                        <button class="password-toggle" type="button" data-toggle-password="auth-password" data-i18n-title="showPassword" aria-label="Show password">👁</button>
+                    </div>
+                </div>
+                <div id="auth-confirm-wrap" hidden>
+                    <label for="auth-confirm-password" data-i18n-home="confirmPasswordLabel">Confirm password</label>
+                    <div class="auth-field">
+                        <input id="auth-confirm-password" class="has-action" type="password" autocomplete="new-password" data-i18n-placeholder="confirmPasswordPlaceholder" placeholder="Enter the password again">
+                        <button class="password-toggle" type="button" data-toggle-password="auth-confirm-password" data-i18n-title="showPassword" aria-label="Show password">👁</button>
+                    </div>
+                </div>
+                <div id="auth-phone-fields" hidden>
+                    <label for="auth-phone" data-i18n-home="phoneLabel">Phone number</label>
+                    <input id="auth-phone" type="tel" autocomplete="tel" data-i18n-placeholder="phonePlaceholder" placeholder="13800000000">
+                    <label for="auth-sms-code" data-i18n-home="smsCodeLabel">Verification code</label>
+                    <div class="auth-sms-row">
+                        <input id="auth-sms-code" type="text" inputmode="numeric" autocomplete="one-time-code" data-i18n-placeholder="smsCodePlaceholder" placeholder="6-digit code">
+                        <button class="auth-secondary-btn" type="button" id="auth-send-code" data-i18n-home="sendCode">Send code</button>
+                    </div>
+                </div>
+                <label class="remember-row">
+                    <input id="auth-remember" type="checkbox" checked>
+                    <span data-i18n-home="rememberMe">Remember this email</span>
+                </label>
+                <div class="auth-actions">
+                    <button class="cta-btn primary" type="button" id="auth-submit" data-i18n-home="authSubmitLogin">Login</button>
+                </div>
+                <p class="auth-message" id="auth-message"></p>
+                <p class="auth-switch"><span id="auth-switch-copy" data-i18n-home="authSwitchRegister">No account yet?</span> <button type="button" id="auth-switch-btn" data-i18n-home="authSwitchRegisterAction">Create one</button></p>
+            </section>
+            <section class="auth-visual">
+                <button class="auth-close-icon" type="button" id="auth-close" aria-label="Close">×</button>
+                <h3 data-i18n-home="authVisualTitle">Generate polished PPTs from one clean workspace</h3>
+                <p data-i18n-home="authVisualText">Sign in to keep history, credits, invitation rewards, and downloads in sync.</p>
+            </section>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="contact-modal">
+        <div class="auth-modal">
+            <section class="auth-panel">
+                <h2 data-i18n-home="contactTitle">Contact us</h2>
+                <p class="auth-kicker" data-i18n-home="contactKicker">Scan a QR code to get product support or join the community.</p>
+                <div class="contact-grid">
+                    <article class="contact-card">
+                        <div class="qr-box" data-qr-src="assets/contact/wechat-qr.png"><span data-i18n-home="qrMissing">QR pending</span></div>
+                        <h3 data-i18n-home="wechatContact">WeChat</h3>
+                        <p data-i18n-home="wechatContactText">Scan to contact us for product help.</p>
+                    </article>
+                    <article class="contact-card">
+                        <div class="qr-box" data-qr-src="assets/contact/wechat-qr.png"><span data-i18n-home="qrMissing">QR pending</span></div>
+                        <h3 data-i18n-home="feishuGroup">Feishu group</h3>
+                        <p data-i18n-home="feishuGroupText">Scan to join the community.</p>
+                    </article>
+                </div>
+            </section>
+            <section class="auth-visual">
+                <button class="auth-close-icon" type="button" id="contact-close" aria-label="Close">×</button>
+                <h3 data-i18n-home="contactVisualTitle">Talk to us before your next deck</h3>
+                <p data-i18n-home="contactVisualText">We can help with onboarding, templates, credits, and generation workflow.</p>
+            </section>
+        </div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script src="cloudbase-config.js"></script>
+    <script>
+        const EXAMPLES_DATA_URL = 'examples/examples.json';
+        const EXAMPLES_CACHE_KEY = 'ppt-master.examples-cache.v1';
+        const INLINE_EXAMPLES_DATA = {"version":2,"updated":"2026-07-07","stats":{"examples":21,"pages":204,"templates":21},"projects":[{"id":"edge-intelligence","title":"边缘智能：从云端到现场","description":"边缘计算工程蓝图，讲清延迟、部署与生命周期。","icon":"","color":"#132B3A","style":"technical","styleName":"Engineering Blueprint","desc":"边缘计算工程蓝图，讲清延迟、部署与生命周期。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-edge-intelligence/edge-intelligence_ppt169_20260704/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"边缘智能：从云端到现场"},{"file":"02_window.svg","title":"第 2 页","desc":"边缘智能：从云端到现场"},{"file":"03_continuum.svg","title":"第 3 页","desc":"边缘智能：从云端到现场"},{"file":"04_latency.svg","title":"第 4 页","desc":"边缘智能：从云端到现场"},{"file":"05_architecture.svg","title":"第 5 页","desc":"边缘智能：从云端到现场"},{"file":"06_tradeoffs.svg","title":"第 6 页","desc":"边缘智能：从云端到现场"},{"file":"07_placement.svg","title":"第 7 页","desc":"边缘智能：从云端到现场"},{"file":"08_lifecycle.svg","title":"第 8 页","desc":"边缘智能：从云端到现场"},{"file":"09_roadmap.svg","title":"第 9 页","desc":"边缘智能：从云端到现场"},{"file":"10_conclusion.svg","title":"第 10 页","desc":"边缘智能：从云端到现场"}]},{"id":"spatial-robotics","title":"空间机器人系统图谱","description":"白色实验室系统图，拆解感知、定位、规划与执行。","icon":"","color":"#2D6A73","style":"technical","styleName":"Laboratory Systems","desc":"白色实验室系统图，拆解感知、定位、规划与执行。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-spatial-robotics/spatial-robotics_ppt169_20260704/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"空间机器人系统图谱"},{"file":"02_stack.svg","title":"第 2 页","desc":"空间机器人系统图谱"},{"file":"03_fusion.svg","title":"第 3 页","desc":"空间机器人系统图谱"},{"file":"04_world_model.svg","title":"第 4 页","desc":"空间机器人系统图谱"},{"file":"05_loop.svg","title":"第 5 页","desc":"空间机器人系统图谱"},{"file":"06_planning_control.svg","title":"第 6 页","desc":"空间机器人系统图谱"},{"file":"07_safety.svg","title":"第 7 页","desc":"空间机器人系统图谱"},{"file":"08_evaluation.svg","title":"第 8 页","desc":"空间机器人系统图谱"},{"file":"09_roadmap.svg","title":"第 9 页","desc":"空间机器人系统图谱"},{"file":"10_conclusion.svg","title":"第 10 页","desc":"空间机器人系统图谱"}]},{"id":"lakehouse-handbook","title":"Lakehouse 工程手册","description":"终端绿黑风的数据平台架构与治理手册。","icon":"","color":"#0C6B4F","style":"technical","styleName":"Terminal Handbook","desc":"终端绿黑风的数据平台架构与治理手册。","tags":["PPT Master","9 slides"],"isNew":true,"folder":"owned-lakehouse-handbook/lakehouse-handbook_ppt169_20260704/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"Lakehouse 工程手册"},{"file":"02_architecture.svg","title":"第 2 页","desc":"Lakehouse 工程手册"},{"file":"03_why_lakehouse.svg","title":"第 3 页","desc":"Lakehouse 工程手册"},{"file":"04_medallion.svg","title":"第 4 页","desc":"Lakehouse 工程手册"},{"file":"05_batch_stream.svg","title":"第 5 页","desc":"Lakehouse 工程手册"},{"file":"06_table_format.svg","title":"第 6 页","desc":"Lakehouse 工程手册"},{"file":"07_governance.svg","title":"第 7 页","desc":"Lakehouse 工程手册"},{"file":"08_migration.svg","title":"第 8 页","desc":"Lakehouse 工程手册"},{"file":"09_conclusion.svg","title":"第 9 页","desc":"Lakehouse 工程手册"}]},{"id":"event-driven","title":"事件驱动架构实践","description":"洋红拓扑风的事件流、解耦与可观测性案例。","icon":"","color":"#7A3EF0","style":"technical","styleName":"Event Topology","desc":"洋红拓扑风的事件流、解耦与可观测性案例。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-event-driven/event-driven-architecture_ppt169_20260704/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"事件驱动架构实践"},{"file":"02_coupling.svg","title":"第 2 页","desc":"事件驱动架构实践"},{"file":"03_calls_to_events.svg","title":"第 3 页","desc":"事件驱动架构实践"},{"file":"04_backbone.svg","title":"第 4 页","desc":"事件驱动架构实践"},{"file":"05_delivery.svg","title":"第 5 页","desc":"事件驱动架构实践"},{"file":"06_semantics.svg","title":"第 6 页","desc":"事件驱动架构实践"},{"file":"07_observability.svg","title":"第 7 页","desc":"事件驱动架构实践"},{"file":"08_health.svg","title":"第 8 页","desc":"事件驱动架构实践"},{"file":"09_migration.svg","title":"第 9 页","desc":"事件驱动架构实践"},{"file":"10_conclusion.svg","title":"第 10 页","desc":"事件驱动架构实践"}]},{"id":"sea-energy-growth","title":"海上新能源增长战略","description":"蓝白高层咨询风，覆盖市场、能力与增长路线图。","icon":"","color":"#176B9B","style":"consulting","styleName":"Executive Strategy","desc":"蓝白高层咨询风，覆盖市场、能力与增长路线图。","tags":["PPT Master","11 slides"],"isNew":true,"folder":"owned-sea-energy-growth/sea-energy-growth_ppt169_20260704/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"海上新能源增长战略"},{"file":"02_recommendation.svg","title":"第 2 页","desc":"海上新能源增长战略"},{"file":"03_country_screen.svg","title":"第 3 页","desc":"海上新能源增长战略"},{"file":"04_demand_pools.svg","title":"第 4 页","desc":"海上新能源增长战略"},{"file":"05_value_pool.svg","title":"第 5 页","desc":"海上新能源增长战略"},{"file":"06_entry_model.svg","title":"第 6 页","desc":"海上新能源增长战略"},{"file":"07_channel.svg","title":"第 7 页","desc":"海上新能源增长战略"},{"file":"08_unit_economics.svg","title":"第 8 页","desc":"海上新能源增长战略"},{"file":"09_risks.svg","title":"第 9 页","desc":"海上新能源增长战略"},{"file":"10_roadmap.svg","title":"第 10 页","desc":"海上新能源增长战略"},{"file":"11_decision.svg","title":"第 11 页","desc":"海上新能源增长战略"}]},{"id":"coffee-city-growth","title":"城市咖啡增长地图","description":"暖红零售分析风，拆解门店、客群与城市扩张。","icon":"","color":"#C54B3C","style":"consulting","styleName":"Retail Analytics","desc":"暖红零售分析风，拆解门店、客群与城市扩张。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-coffee-growth/coffee-city-growth_ppt169_20260705/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"城市咖啡增长地图"},{"file":"02_recommendation.svg","title":"第 2 页","desc":"城市咖啡增长地图"},{"file":"03_city_screen.svg","title":"第 3 页","desc":"城市咖啡增长地图"},{"file":"04_portfolio.svg","title":"第 4 页","desc":"城市咖啡增长地图"},{"file":"05_flywheel.svg","title":"第 5 页","desc":"城市咖啡增长地图"},{"file":"06_formats.svg","title":"第 6 页","desc":"城市咖啡增长地图"},{"file":"07_economics.svg","title":"第 7 页","desc":"城市咖啡增长地图"},{"file":"08_cohort.svg","title":"第 8 页","desc":"城市咖啡增长地图"},{"file":"09_roadmap.svg","title":"第 9 页","desc":"城市咖啡增长地图"},{"file":"10_decision.svg","title":"第 10 页","desc":"城市咖啡增长地图"}]},{"id":"factory-energy","title":"工厂能源转型路线图","description":"工业运营风的能耗诊断、改造优先级与实施节奏。","icon":"","color":"#52606D","style":"consulting","styleName":"Industrial Operations","desc":"工业运营风的能耗诊断、改造优先级与实施节奏。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-factory-energy/factory-energy-roadmap_ppt169_20260705/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"工厂能源转型路线图"},{"file":"02_baseline.svg","title":"第 2 页","desc":"工厂能源转型路线图"},{"file":"03_balance.svg","title":"第 3 页","desc":"工厂能源转型路线图"},{"file":"04_pareto.svg","title":"第 4 页","desc":"工厂能源转型路线图"},{"file":"05_levers.svg","title":"第 5 页","desc":"工厂能源转型路线图"},{"file":"06_portfolio.svg","title":"第 6 页","desc":"工厂能源转型路线图"},{"file":"07_economics.svg","title":"第 7 页","desc":"工厂能源转型路线图"},{"file":"08_control.svg","title":"第 8 页","desc":"工厂能源转型路线图"},{"file":"09_roadmap.svg","title":"第 9 页","desc":"工厂能源转型路线图"},{"file":"10_decision.svg","title":"第 10 页","desc":"工厂能源转型路线图"}]},{"id":"county-tourism","title":"县域文旅焕新策略","description":"青绿朱红的文化策略提案，连接资源、产品与运营。","icon":"","color":"#1D7A73","style":"consulting","styleName":"Cultural Strategy","desc":"青绿朱红的文化策略提案，连接资源、产品与运营。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-county-tourism/county-tourism-renewal_ppt169_20260705/svg_final","cover":"01_cover.svg","slides":[{"file":"01_cover.svg","title":"封面","desc":"县域文旅焕新策略"},{"file":"02_recommendation.svg","title":"第 2 页","desc":"县域文旅焕新策略"},{"file":"03_segments.svg","title":"第 3 页","desc":"县域文旅焕新策略"},{"file":"04_narrative.svg","title":"第 4 页","desc":"县域文旅焕新策略"},{"file":"05_portfolio.svg","title":"第 5 页","desc":"县域文旅焕新策略"},{"file":"06_journeys.svg","title":"第 6 页","desc":"县域文旅焕新策略"},{"file":"07_calendar.svg","title":"第 7 页","desc":"县域文旅焕新策略"},{"file":"08_investment.svg","title":"第 8 页","desc":"县域文旅焕新策略"},{"file":"09_roadmap.svg","title":"第 9 页","desc":"县域文旅焕新策略"},{"file":"10_decision.svg","title":"第 10 页","desc":"县域文旅焕新策略"}]},{"id":"product-review","title":"2026 产品团队年度复盘","description":"企业复盘风，包含 KPI、留存、失败经验与路线图。","icon":"","color":"#3159D9","style":"general","styleName":"Product Review","desc":"企业复盘风，包含 KPI、留存、失败经验与路线图。","tags":["PPT Master","9 slides"],"isNew":true,"folder":"owned-product-review/product-team-review_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"2026 产品团队年度复盘"},{"file":"slide_02.svg","title":"第 2 页","desc":"2026 产品团队年度复盘"},{"file":"slide_03.svg","title":"第 3 页","desc":"2026 产品团队年度复盘"},{"file":"slide_04.svg","title":"第 4 页","desc":"2026 产品团队年度复盘"},{"file":"slide_05.svg","title":"第 5 页","desc":"2026 产品团队年度复盘"},{"file":"slide_06.svg","title":"第 6 页","desc":"2026 产品团队年度复盘"},{"file":"slide_07.svg","title":"第 7 页","desc":"2026 产品团队年度复盘"},{"file":"slide_08.svg","title":"第 8 页","desc":"2026 产品团队年度复盘"},{"file":"slide_09.svg","title":"第 9 页","desc":"2026 产品团队年度复盘"}]},{"id":"ai-camp","title":"新员工 AI 协作训练营","description":"模块化教学卡与工作坊任务，覆盖协作与安全边界。","icon":"","color":"#246BFD","style":"general","styleName":"Learning Workshop","desc":"模块化教学卡与工作坊任务，覆盖协作与安全边界。","tags":["PPT Master","8 slides"],"isNew":true,"folder":"owned-ai-camp/ai-collaboration-camp_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"新员工 AI 协作训练营"},{"file":"slide_02.svg","title":"第 2 页","desc":"新员工 AI 协作训练营"},{"file":"slide_03.svg","title":"第 3 页","desc":"新员工 AI 协作训练营"},{"file":"slide_04.svg","title":"第 4 页","desc":"新员工 AI 协作训练营"},{"file":"slide_05.svg","title":"第 5 页","desc":"新员工 AI 协作训练营"},{"file":"slide_06.svg","title":"第 6 页","desc":"新员工 AI 协作训练营"},{"file":"slide_07.svg","title":"第 7 页","desc":"新员工 AI 协作训练营"},{"file":"slide_08.svg","title":"第 8 页","desc":"新员工 AI 协作训练营"}]},{"id":"aurora-launch","title":"Aurora 智能耳机发布会","description":"黑色舞台与冰蓝产品光的科技新品发布会。","icon":"","color":"#20C7E8","style":"creative","styleName":"Product Keynote","desc":"黑色舞台与冰蓝产品光的科技新品发布会。","tags":["PPT Master","8 slides"],"isNew":true,"folder":"owned-aurora-launch/aurora-headphones-launch_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"Aurora 智能耳机发布会"},{"file":"slide_02.svg","title":"第 2 页","desc":"Aurora 智能耳机发布会"},{"file":"slide_03.svg","title":"第 3 页","desc":"Aurora 智能耳机发布会"},{"file":"slide_04.svg","title":"第 4 页","desc":"Aurora 智能耳机发布会"},{"file":"slide_05.svg","title":"第 5 页","desc":"Aurora 智能耳机发布会"},{"file":"slide_06.svg","title":"第 6 页","desc":"Aurora 智能耳机发布会"},{"file":"slide_07.svg","title":"第 7 页","desc":"Aurora 智能耳机发布会"},{"file":"slide_08.svg","title":"第 8 页","desc":"Aurora 智能耳机发布会"}]},{"id":"island-hotel","title":"海岛酒店改造项目汇报","description":"建筑蓝图式改造提案，包含总图、剖面与分期投资。","icon":"","color":"#164B63","style":"consulting","styleName":"Architecture Brief","desc":"建筑蓝图式改造提案，包含总图、剖面与分期投资。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-island-hotel/island-hotel-renovation_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"海岛酒店改造项目汇报"},{"file":"slide_02.svg","title":"第 2 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_03.svg","title":"第 3 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_04.svg","title":"第 4 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_05.svg","title":"第 5 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_06.svg","title":"第 6 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_07.svg","title":"第 7 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_08.svg","title":"第 8 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_09.svg","title":"第 9 页","desc":"海岛酒店改造项目汇报"},{"file":"slide_10.svg","title":"第 10 页","desc":"海岛酒店改造项目汇报"}]},{"id":"neon-tide","title":"NEON TIDE 城市音乐节","description":"酸性霓虹海报语言的阵容、舞台、时刻表与售票方案。","icon":"","color":"#FF2BB5","style":"creative","styleName":"Acid Festival","desc":"酸性霓虹海报语言的阵容、舞台、时刻表与售票方案。","tags":["PPT Master","8 slides"],"isNew":true,"folder":"owned-neon-tide/neon-tide-city-music-festival_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"NEON TIDE 城市音乐节"},{"file":"slide_02.svg","title":"第 2 页","desc":"NEON TIDE 城市音乐节"},{"file":"slide_03.svg","title":"第 3 页","desc":"NEON TIDE 城市音乐节"},{"file":"slide_04.svg","title":"第 4 页","desc":"NEON TIDE 城市音乐节"},{"file":"slide_05.svg","title":"第 5 页","desc":"NEON TIDE 城市音乐节"},{"file":"slide_06.svg","title":"第 6 页","desc":"NEON TIDE 城市音乐节"},{"file":"slide_07.svg","title":"第 7 页","desc":"NEON TIDE 城市音乐节"},{"file":"slide_08.svg","title":"第 8 页","desc":"NEON TIDE 城市音乐节"}]},{"id":"bookstore-seasons","title":"一间独立书店的四季","description":"拼贴杂志式书店经营日志，记录街区关系与四季节奏。","icon":"","color":"#7B4058","style":"editorial","styleName":"Collage Zine","desc":"拼贴杂志式书店经营日志，记录街区关系与四季节奏。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-bookstore-seasons/independent-bookstore-seasons_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"一间独立书店的四季"},{"file":"slide_02.svg","title":"第 2 页","desc":"一间独立书店的四季"},{"file":"slide_03.svg","title":"第 3 页","desc":"一间独立书店的四季"},{"file":"slide_04.svg","title":"第 4 页","desc":"一间独立书店的四季"},{"file":"slide_05.svg","title":"第 5 页","desc":"一间独立书店的四季"},{"file":"slide_06.svg","title":"第 6 页","desc":"一间独立书店的四季"},{"file":"slide_07.svg","title":"第 7 页","desc":"一间独立书店的四季"},{"file":"slide_08.svg","title":"第 8 页","desc":"一间独立书店的四季"},{"file":"slide_09.svg","title":"第 9 页","desc":"一间独立书店的四季"},{"file":"slide_10.svg","title":"第 10 页","desc":"一间独立书店的四季"}]},{"id":"shanhai-scent","title":"山海香气实验室","description":"东方矿物香氛档案，以石、盐、木、雾建立材料谱。","icon":"","color":"#64877C","style":"creative","styleName":"Mineral Fragrance","desc":"东方矿物香氛档案，以石、盐、木、雾建立材料谱。","tags":["PPT Master","9 slides"],"isNew":true,"folder":"owned-shanhai-scent-lab/shanhai-scent-lab_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"山海香气实验室"},{"file":"slide_02.svg","title":"第 2 页","desc":"山海香气实验室"},{"file":"slide_03.svg","title":"第 3 页","desc":"山海香气实验室"},{"file":"slide_04.svg","title":"第 4 页","desc":"山海香气实验室"},{"file":"slide_05.svg","title":"第 5 页","desc":"山海香气实验室"},{"file":"slide_06.svg","title":"第 6 页","desc":"山海香气实验室"},{"file":"slide_07.svg","title":"第 7 页","desc":"山海香气实验室"},{"file":"slide_08.svg","title":"第 8 页","desc":"山海香气实验室"},{"file":"slide_09.svg","title":"第 9 页","desc":"山海香气实验室"}]},{"id":"sneaker-materials","title":"未来运动鞋材料档案","description":"工业材料样本册，比较泡棉、菌丝、针织与模块外底。","icon":"","color":"#145DA0","style":"technical","styleName":"Material Archive","desc":"工业材料样本册，比较泡棉、菌丝、针织与模块外底。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-future-sneaker-materials/future-sneaker-materials-archive_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"未来运动鞋材料档案"},{"file":"slide_02.svg","title":"第 2 页","desc":"未来运动鞋材料档案"},{"file":"slide_03.svg","title":"第 3 页","desc":"未来运动鞋材料档案"},{"file":"slide_04.svg","title":"第 4 页","desc":"未来运动鞋材料档案"},{"file":"slide_05.svg","title":"第 5 页","desc":"未来运动鞋材料档案"},{"file":"slide_06.svg","title":"第 6 页","desc":"未来运动鞋材料档案"},{"file":"slide_07.svg","title":"第 7 页","desc":"未来运动鞋材料档案"},{"file":"slide_08.svg","title":"第 8 页","desc":"未来运动鞋材料档案"},{"file":"slide_09.svg","title":"第 9 页","desc":"未来运动鞋材料档案"},{"file":"slide_10.svg","title":"第 10 页","desc":"未来运动鞋材料档案"}]},{"id":"timber-revival","title":"木构建筑的当代复兴","description":"建筑杂志版式，连接传统木作、工程木与循环建造。","icon":"","color":"#20342C","style":"editorial","styleName":"Architecture Magazine","desc":"建筑杂志版式，连接传统木作、工程木与循环建造。","tags":["PPT Master","11 slides"],"isNew":true,"folder":"owned-timber-revival/timber-architecture-revival_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"木构建筑的当代复兴"},{"file":"slide_02.svg","title":"第 2 页","desc":"木构建筑的当代复兴"},{"file":"slide_03.svg","title":"第 3 页","desc":"木构建筑的当代复兴"},{"file":"slide_04.svg","title":"第 4 页","desc":"木构建筑的当代复兴"},{"file":"slide_05.svg","title":"第 5 页","desc":"木构建筑的当代复兴"},{"file":"slide_06.svg","title":"第 6 页","desc":"木构建筑的当代复兴"},{"file":"slide_07.svg","title":"第 7 页","desc":"木构建筑的当代复兴"},{"file":"slide_08.svg","title":"第 8 页","desc":"木构建筑的当代复兴"},{"file":"slide_09.svg","title":"第 9 页","desc":"木构建筑的当代复兴"},{"file":"slide_10.svg","title":"第 10 页","desc":"木构建筑的当代复兴"},{"file":"slide_11.svg","title":"第 11 页","desc":"木构建筑的当代复兴"}]},{"id":"night-economy","title":"中国夜间经济观察","description":"数据新闻风，分析时间曲线、交通边界与夜间治理。","icon":"","color":"#22D3A7","style":"editorial","styleName":"Data Journalism","desc":"数据新闻风，分析时间曲线、交通边界与夜间治理。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-night-economy/china-night-economy_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"中国夜间经济观察"},{"file":"slide_02.svg","title":"第 2 页","desc":"中国夜间经济观察"},{"file":"slide_03.svg","title":"第 3 页","desc":"中国夜间经济观察"},{"file":"slide_04.svg","title":"第 4 页","desc":"中国夜间经济观察"},{"file":"slide_05.svg","title":"第 5 页","desc":"中国夜间经济观察"},{"file":"slide_06.svg","title":"第 6 页","desc":"中国夜间经济观察"},{"file":"slide_07.svg","title":"第 7 页","desc":"中国夜间经济观察"},{"file":"slide_08.svg","title":"第 8 页","desc":"中国夜间经济观察"},{"file":"slide_09.svg","title":"第 9 页","desc":"中国夜间经济观察"},{"file":"slide_10.svg","title":"第 10 页","desc":"中国夜间经济观察"}]},{"id":"cocoa-climate","title":"可可、气候与一块巧克力","description":"长篇新闻叙事，追踪气候风险如何穿过可可供应链。","icon":"","color":"#4B2230","style":"editorial","styleName":"Longform Report","desc":"长篇新闻叙事，追踪气候风险如何穿过可可供应链。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-cocoa-climate/cocoa-climate-chocolate_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"可可、气候与一块巧克力"},{"file":"slide_02.svg","title":"第 2 页","desc":"可可、气候与一块巧克力"},{"file":"slide_03.svg","title":"第 3 页","desc":"可可、气候与一块巧克力"},{"file":"slide_04.svg","title":"第 4 页","desc":"可可、气候与一块巧克力"},{"file":"slide_05.svg","title":"第 5 页","desc":"可可、气候与一块巧克力"},{"file":"slide_06.svg","title":"第 6 页","desc":"可可、气候与一块巧克力"},{"file":"slide_07.svg","title":"第 7 页","desc":"可可、气候与一块巧克力"},{"file":"slide_08.svg","title":"第 8 页","desc":"可可、气候与一块巧克力"},{"file":"slide_09.svg","title":"第 9 页","desc":"可可、气候与一块巧克力"},{"file":"slide_10.svg","title":"第 10 页","desc":"可可、气候与一块巧克力"}]},{"id":"county-market","title":"被重新发明的县城菜市场","description":"人文编辑风，观察空间更新、摊贩生计与公共生活。","icon":"","color":"#176B63","style":"editorial","styleName":"Humanist Editorial","desc":"人文编辑风，观察空间更新、摊贩生计与公共生活。","tags":["PPT Master","10 slides"],"isNew":true,"folder":"owned-county-market/reinvented-county-market_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"被重新发明的县城菜市场"},{"file":"slide_02.svg","title":"第 2 页","desc":"被重新发明的县城菜市场"},{"file":"slide_03.svg","title":"第 3 页","desc":"被重新发明的县城菜市场"},{"file":"slide_04.svg","title":"第 4 页","desc":"被重新发明的县城菜市场"},{"file":"slide_05.svg","title":"第 5 页","desc":"被重新发明的县城菜市场"},{"file":"slide_06.svg","title":"第 6 页","desc":"被重新发明的县城菜市场"},{"file":"slide_07.svg","title":"第 7 页","desc":"被重新发明的县城菜市场"},{"file":"slide_08.svg","title":"第 8 页","desc":"被重新发明的县城菜市场"},{"file":"slide_09.svg","title":"第 9 页","desc":"被重新发明的县城菜市场"},{"file":"slide_10.svg","title":"第 10 页","desc":"被重新发明的县城菜市场"}]},{"id":"living-trends-2027","title":"2027 居住方式趋势报告","description":"高端趋势年鉴，讨论弹性空间、健康、科技与街区服务。","icon":"","color":"#243B53","style":"general","styleName":"Trend Yearbook","desc":"高端趋势年鉴，讨论弹性空间、健康、科技与街区服务。","tags":["PPT Master","11 slides"],"isNew":true,"folder":"owned-living-trends-2027/living-trends-2027_ppt169_20260706/svg_final","cover":"slide_01.svg","slides":[{"file":"slide_01.svg","title":"封面","desc":"2027 居住方式趋势报告"},{"file":"slide_02.svg","title":"第 2 页","desc":"2027 居住方式趋势报告"},{"file":"slide_03.svg","title":"第 3 页","desc":"2027 居住方式趋势报告"},{"file":"slide_04.svg","title":"第 4 页","desc":"2027 居住方式趋势报告"},{"file":"slide_05.svg","title":"第 5 页","desc":"2027 居住方式趋势报告"},{"file":"slide_06.svg","title":"第 6 页","desc":"2027 居住方式趋势报告"},{"file":"slide_07.svg","title":"第 7 页","desc":"2027 居住方式趋势报告"},{"file":"slide_08.svg","title":"第 8 页","desc":"2027 居住方式趋势报告"},{"file":"slide_09.svg","title":"第 9 页","desc":"2027 居住方式趋势报告"},{"file":"slide_10.svg","title":"第 10 页","desc":"2027 居住方式趋势报告"},{"file":"slide_11.svg","title":"第 11 页","desc":"2027 居住方式趋势报告"}]}]};
+        const PRODUCTION_API_BASE = 'https://api.aigcstory.site';
+        const LOCAL_API_BASE = 'http://127.0.0.1:8766';
+        const PRODUCTION_HOSTS = new Set(['aigcstory.site', 'www.aigcstory.site', 'ppt.aigcstory.site', 'ppt-cn.aigcstory.site']);
+        const CHINA_HOSTS = new Set(['aigcstory.cn', 'www.aigcstory.cn', 'ppt.aigcstory.cn', 'cn.aigcstory.site', 'ppt-cn.aigcstory.site']);
+        const DEFAULT_API_BASE = PRODUCTION_HOSTS.has(window.location.hostname) ? PRODUCTION_API_BASE : LOCAL_API_BASE;
+        const HOME_LANG_KEY = 'ppt-master-language';
+        const THEME_KEY = 'ppt-master-theme-mode';
+        const HOME_SESSION_KEY = 'ppt-master-session';
+        const HOME_SESSION_TOKEN_KEY = 'ppt-master-session-token';
+        const SUPABASE_URL_KEY = 'ppt-master-supabase-url';
+        const SUPABASE_ANON_KEY_KEY = 'ppt-master-supabase-anon-key';
+        const SUPABASE_SESSION_KEY = 'ppt-master-supabase-session';
+        const CLOUDBASE_ENV_ID_KEY = 'ppt-master-cloudbase-env-id';
+        const CLOUDBASE_CLIENT_ID_KEY = 'ppt-master-cloudbase-client-id';
+        const CLOUDBASE_PUBLISHABLE_KEY_KEY = 'ppt-master-cloudbase-publishable-key';
+        const CLOUDBASE_AUTH_BASE_KEY = 'ppt-master-cloudbase-auth-base';
+        const CLOUDBASE_SESSION_KEY = 'ppt-master-cloudbase-session';
+        const CLERK_PUBLISHABLE_KEY_KEY = 'ppt-master-clerk-publishable-key';
+        const CLERK_SESSION_KEY = 'ppt-master-clerk-session';
+        let supabaseClient = null;
+        let cloudbaseApp = null;
+        let cloudbaseAuthClient = null;
+        let clerkClient = null;
+        const homeCopy = {
+            en: {
+                loginButton: 'Login',
+                signupButton: 'Sign up here',
+                themeSystem: 'System',
+                themeLight: 'Light',
+                themeDark: 'Dark',
+                authSignedIn: 'Logan · Free',
+                navWorkflow: 'Workflow',
+                navProduct: 'Product',
+                navShowcase: 'Examples',
+                navContact: 'Contact',
+                navOfficial: 'Official site',
+                eyebrow: 'AI PPT generation platform',
+                heroTitle: 'From documents to editable PPTX in one AI workflow',
+                heroCopy: 'Upload PDFs, DOCX, URLs, or notes. Best PPT clarifies the brief, builds an outline, generates native PowerPoint slides, speaker notes, visuals, and narrated exports.',
+                openGenerator: 'Start creating →',
+                seeWorkflow: 'See workflow',
+                mockSlideTitle: 'Q3 Business Review',
+                mockChipRole: 'Executive',
+                mockChipScene: 'Business report',
+                mockChipTime: '5 min',
+                mockPrompt: 'Generate an investor-ready deck from Q3 materials, with clear logic and editable charts.',
+                examplesLabel: 'Examples',
+                pagesLabel: 'Pages',
+                templatesLabel: 'Templates',
+                editableLabel: 'Editable output',
+                workflowKicker: 'End-to-end workflow',
+                workflowTitle: 'From rough material to presentation-ready deck',
+                workflowText: 'Best PPT follows the same chain a human consultant would use: understand the brief, shape the outline, generate slides, then preview and download.',
+                workflow1Title: 'Upload or describe',
+                workflow1Text: 'Start from a prompt, PDF, DOCX, Markdown, URLs, or mixed source materials.',
+                workflow2Title: 'Confirm the plan',
+                workflow2Text: 'AI proposes audience, scene, length, structure, image advice, and speaker-note direction before generation.',
+                workflow3Title: 'Preview and export',
+                workflow3Text: 'Review the generated deck online, restore history, and download editable PPTX or narrated PPTX.',
+                productKicker: 'Product capabilities',
+                productTitle: 'A PPT generator built for real work, not screenshots',
+                productText: 'The output is designed for business reuse: editable shapes, structured speaker notes, optional images, restrained animations, and account-based history.',
+                feature1Title: 'Native PPTX',
+                feature1Text: 'Slides are exported as editable PowerPoint files with real text and shapes.',
+                feature2Title: 'Brief refinement',
+                feature2Text: 'The chat helps narrow audience, scene, tone, page count, and outline before the job starts.',
+                feature3Title: 'Visual generation',
+                feature3Text: 'Optional AI-generated visuals and search fallback help fill slides with relevant imagery.',
+                feature4Title: 'Speaker notes',
+                feature4Text: 'Each slide can include first-person narration-style notes for delivery.',
+                feature5Title: 'Narrated export',
+                feature5Text: 'Read-aloud mode produces a second PPTX with embedded narration and timings.',
+                feature6Title: 'Templates and history',
+                feature6Text: 'Restore previous tasks and reuse templates from the workbench.',
+                showcaseKicker: 'Examples',
+                showcaseTitle: 'Reusable deck styles for different presentation scenes',
+                contactSectionTitle: 'Get in touch anytime',
+                contactSectionText: 'For product support, private deployment, templates, and workflow consulting, reach out to us directly.',
+                phoneContact: 'Phone',
+                emailContact: 'Email',
+                emailContactText: 'We usually reply within 24 hours.',
+                filterAll: 'All',
+                filterTechnical: 'Technical',
+                filterConsulting: 'Consulting',
+                filterGeneral: 'General',
+                filterCreative: 'Creative',
+                filterEditorial: 'Editorial',
+                examplesFileModeTitle: 'Local file mode',
+                examplesFileModeBody: 'Using the built-in example catalog because browsers block reading local JSON files from file:// pages.',
+                examplesFallbackTitle: 'Examples manifest unavailable',
+                examplesFallbackBody: 'Showing the bundled example catalog. Start a local web server if you need the latest examples/examples.json.',
+                examplesUnavailableTitle: 'Unable to load examples',
+                examplesUnavailableBody: 'Start a local web server or check examples/examples.json.',
+                examplesEmptyFilter: 'No examples in this category yet.',
+                authTitleLogin: 'Sign in to Best PPT',
+                authTitleRegister: 'Create your Best PPT account',
+                authTitlePhone: 'Login or sign up with phone',
+                authKicker: 'Use one account for generation, credits, billing, and invitations.',
+                authTabLogin: 'Password login',
+                authTabRegister: 'Create account',
+                authMethodEmail: 'Email',
+                authMethodPhone: 'Phone code',
+                emailLabel: 'Email',
+                emailPlaceholder: 'name@example.com',
+                passwordLabel: 'Password',
+                passwordPlaceholder: 'At least 6 characters',
+                confirmPasswordLabel: 'Confirm password',
+                confirmPasswordPlaceholder: 'Enter the password again',
+                phoneLabel: 'Phone number',
+                phonePlaceholder: 'Mainland China phone number',
+                smsCodeLabel: 'Verification code',
+                smsCodePlaceholder: '6-digit code',
+                sendCode: 'Send code',
+                resendCode: 'Resend in {seconds}s',
+                showPassword: 'Show password',
+                hidePassword: 'Hide password',
+                rememberMe: 'Remember this email',
+                authSubmitLogin: 'Login',
+                authSubmitRegister: 'Create account',
+                authSubmitPhone: 'Login / sign up with code',
+                authSwitchRegister: 'No account yet?',
+                authSwitchRegisterAction: 'Create one',
+                authSwitchLogin: 'Already have an account?',
+                authSwitchLoginAction: 'Login',
+                authVisualTitle: 'Generate polished PPTs from one clean workspace',
+                authVisualText: 'Sign in to keep history, credits, invitation rewards, and downloads in sync.',
+                authFailed: 'Sign-in failed',
+                authRegisterFailed: 'Sign-up failed',
+                authPendingConfirmation: 'Account created. Please confirm your email before signing in.',
+                authRequired: 'Please enter email and password.',
+                phoneRequired: 'Please enter phone number and verification code.',
+                phoneInvalid: 'Please enter a valid mainland China phone number.',
+                codeSent: 'Verification code sent. Please check your phone.',
+                codeNotSent: 'Please send the verification code first.',
+                passwordMismatch: 'The two passwords do not match.',
+                authCloudBaseMissing: 'CloudBase Auth is not configured yet.',
+                authInvalidCredentials: 'Email or password is incorrect. You can also use phone code login.',
+                authUserNotFound: 'This account does not exist yet. Please create an account first.',
+                authAccountExists: 'This account already exists. Please log in instead.',
+                authWeakPassword: 'Please use a password with at least 6 characters.',
+                authCodeInvalid: 'The verification code is incorrect or expired. Please try again.',
+                authVerificationRequired: 'Registration requires a verification code. Please use phone code sign-up for now.',
+                authTooFrequent: 'Too many attempts. Please wait a moment and try again.',
+                authNetworkError: 'Could not reach the login service. Please check your network and try again.',
+                authSessionMissing: 'Login succeeded, but Best PPT did not receive an app session. Please try again.',
+                accountWorkspace: 'Open workbench',
+                accountProfile: 'Profile',
+                accountMembership: 'Membership and credits',
+                accountInvite: 'Invite friends',
+                accountDocs: 'User guide',
+                accountContact: 'Contact us',
+                accountLogout: 'Sign out',
+                accountSignedInAs: 'Signed in',
+                accountMenuPlan: '{plan} plan',
+                footerDocs: 'User guide',
+                footerWorkflow: 'Workflow',
+                footerProduct: 'Capabilities',
+                footerContact: 'Contact us',
+                contactTitle: 'Contact us',
+                contactKicker: 'Contact us',
+                contactVisualTitle: 'Talk to us before your next deck',
+                contactVisualText: 'We can help with onboarding, templates, credits, and generation workflow.',
+                wechatContact: 'WeChat',
+                wechatContactText: 'Scan to add us on WeChat.',
+                feishuGroup: 'Feishu group',
+                feishuGroupText: 'Scan to join the community.',
+                qrMissing: 'QR pending'
+            },
+            'zh-CN': {
+                loginButton: '登录',
+                signupButton: '注册账号',
+                themeSystem: '跟随系统',
+                themeLight: '明亮模式',
+                themeDark: '深色模式',
+                authSignedIn: 'Logan · 免费版',
+                navWorkflow: '流程',
+                navProduct: '产品',
+                navShowcase: '案例',
+                navContact: '联系',
+                navOfficial: '官网',
+                eyebrow: 'AI PPT 生成平台',
+                heroTitle: '从资料到可编辑 PPTX 的 AI 工作流',
+                heroCopy: '上传 PDF、DOCX、网址或笔记，Best PPT 会先帮你收敛需求、生成大纲，再产出可编辑 PPT、讲稿、配图和带旁白版本。',
+                openGenerator: '免费开始使用 →',
+                seeWorkflow: '查看流程',
+                mockSlideTitle: 'Q3 业务复盘',
+                mockChipRole: '企业管理者',
+                mockChipScene: '商务汇报',
+                mockChipTime: '5 分钟',
+                mockPrompt: '基于 Q3 资料生成投资人汇报 PPT，逻辑清晰，图表可编辑。',
+                examplesLabel: '案例',
+                pagesLabel: '页面',
+                templatesLabel: '模板',
+                editableLabel: '可编辑输出',
+                workflowKicker: '端到端流程',
+                workflowTitle: '从粗糙资料到可演示 PPT',
+                workflowText: 'Best PPT 按照真实顾问做 PPT 的链路工作：理解需求、整理大纲、生成页面、在线预览、下载交付。',
+                workflow1Title: '上传或描述需求',
+                workflow1Text: '可以从一句话、PDF、DOCX、Markdown、网址或混合资料开始。',
+                workflow2Title: '确认生成计划',
+                workflow2Text: 'AI 会先建议听众、场景、页数、结构、配图和讲稿方向，确认后再生成。',
+                workflow3Title: '预览并导出',
+                workflow3Text: '在线查看生成结果，恢复历史任务，下载普通 PPTX 或带旁白 PPTX。',
+                productKicker: '产品能力',
+                productTitle: '为真实工作准备的 PPT 生成器，不是截图工具',
+                productText: '输出面向业务复用：可编辑形状、结构化讲稿、可选生图、克制动画、账号历史和会员额度。',
+                feature1Title: '原生 PPTX',
+                feature1Text: '导出真实可编辑的 PowerPoint 文件，包含文本框、形状和页面结构。',
+                feature2Title: '需求收敛',
+                feature2Text: '正式生成前，通过对话明确听众、场景、语气、页数和大纲。',
+                feature3Title: '自动配图',
+                feature3Text: '可选 AI 生图和图片搜索兜底，为页面补充相关视觉素材。',
+                feature4Title: '同步讲稿',
+                feature4Text: '每页生成第一视角讲解稿，方便直接上台演示。',
+                feature5Title: '旁白导出',
+                feature5Text: '开启朗读后，额外生成嵌入音频和计时的带旁白 PPTX。',
+                feature6Title: '模板与历史',
+                feature6Text: '在工作台恢复历史任务，也可以复用保存的模板。',
+                showcaseKicker: '案例展示',
+                showcaseTitle: '覆盖不同演示场景的可复用 PPT 风格',
+                contactSectionTitle: '随时与我们取得联系',
+                contactSectionText: '可咨询产品使用、私有化部署、模板配置和生成工作流。',
+                phoneContact: '电话',
+                emailContact: '邮箱',
+                emailContactText: '我们会在 24 小时内回复',
+                filterAll: '全部',
+                filterTechnical: '技术',
+                filterConsulting: '咨询',
+                filterGeneral: '通用',
+                filterCreative: '创意',
+                filterEditorial: '编辑风',
+                examplesFileModeTitle: '本地文件模式',
+                examplesFileModeBody: '当前使用内置案例目录，因为浏览器会阻止 file:// 页面直接读取本地 JSON 文件。',
+                examplesFallbackTitle: '案例清单暂不可用',
+                examplesFallbackBody: '当前展示的是内置案例目录；如需读取最新的 examples/examples.json，请启动本地 HTTP 服务。',
+                examplesUnavailableTitle: '无法加载案例',
+                examplesUnavailableBody: '请启动本地 Web 服务，或检查 examples/examples.json 是否可访问。',
+                examplesEmptyFilter: '这个分类下暂时还没有案例。',
+                authTitleLogin: '登录 Best PPT',
+                authTitleRegister: '注册 Best PPT',
+                authTitlePhone: '手机验证码登录/注册',
+                authKicker: '一个账号同步生成记录、会员额度、支付和邀请奖励。',
+                authTabLogin: '密码登录',
+                authTabRegister: '注册账号',
+                authMethodEmail: '邮箱登录',
+                authMethodPhone: '手机验证码',
+                emailLabel: '邮箱',
+                emailPlaceholder: 'name@example.com',
+                passwordLabel: '密码',
+                passwordPlaceholder: '至少 6 位密码',
+                confirmPasswordLabel: '确认密码',
+                confirmPasswordPlaceholder: '请再次输入密码',
+                phoneLabel: '手机号',
+                phonePlaceholder: '请输入大陆手机号',
+                smsCodeLabel: '验证码',
+                smsCodePlaceholder: '请输入 6 位验证码',
+                sendCode: '发送验证码',
+                resendCode: '{seconds}s 后重发',
+                showPassword: '显示密码',
+                hidePassword: '隐藏密码',
+                rememberMe: '记住邮箱',
+                authSubmitLogin: '登录',
+                authSubmitRegister: '注册',
+                authSubmitPhone: '验证码登录/注册',
+                authSwitchRegister: '还没有账号？',
+                authSwitchRegisterAction: '去注册',
+                authSwitchLogin: '已经有账号？',
+                authSwitchLoginAction: '去登录',
+                authVisualTitle: '在一个干净的工作台里生成高质量 PPT',
+                authVisualText: '登录后可以同步历史记录、会员额度、邀请奖励和下载文件。',
+                authFailed: '登录失败',
+                authRegisterFailed: '注册失败',
+                authPendingConfirmation: '账号已创建，请先完成邮箱确认后再登录。',
+                authRequired: '请输入邮箱和密码。',
+                phoneRequired: '请输入手机号和短信验证码。',
+                phoneInvalid: '请输入正确的大陆手机号。',
+                codeSent: '验证码已发送，请查看手机短信。',
+                codeNotSent: '请先发送验证码。',
+                passwordMismatch: '两次输入的密码不一致。',
+                authCloudBaseMissing: '登录服务还没有配置好，请稍后再试。',
+                authInvalidCredentials: '邮箱或密码不正确，也可以试试手机验证码登录。',
+                authUserNotFound: '这个账号还没有注册，请先注册账号。',
+                authAccountExists: '这个账号已经注册过了，请直接登录。',
+                authWeakPassword: '请设置至少 6 位密码。',
+                authCodeInvalid: '验证码不正确或已过期，请重新输入。',
+                authVerificationRequired: '注册需要验证码，请先使用手机验证码注册/登录。',
+                authTooFrequent: '操作太频繁了，请稍等一会儿再试。',
+                authNetworkError: '暂时连不上登录服务，请检查网络后重试。',
+                authSessionMissing: '登录已完成，但 Best PPT 没有拿到业务登录态，请重新登录一次。',
+                accountWorkspace: '进入工作台',
+                accountProfile: '账户资料',
+                accountMembership: '会员与额度',
+                accountInvite: '邀请好友',
+                accountDocs: '使用文档',
+                accountContact: '联系我们',
+                accountLogout: '退出登录',
+                accountSignedInAs: '已登录',
+                accountMenuPlan: '{plan} 会员',
+                footerDocs: '使用文档',
+                footerWorkflow: '生成流程',
+                footerProduct: '产品能力',
+                footerContact: '联系我们',
+                contactTitle: '联系我们',
+                contactKicker: '联系我们',
+                contactVisualTitle: '下一份 PPT 前，先聊聊需求',
+                contactVisualText: '我们可以协助你配置模板、额度、会员和生成流程。',
+                wechatContact: '微信联系',
+                wechatContactText: '扫码添加微信',
+                feishuGroup: '飞书社群',
+                feishuGroupText: '扫码加入社群，获取更新和交流使用经验。',
+                qrMissing: '二维码待配置'
+            }
+        };
+        let projects = [];
+        let activeFilter = 'all';
+        let examplesSource = { mode: 'network', reason: '' };
+        let authMode = 'login';
+        let authMethod = 'email';
+        let smsVerificationInfo = null;
+        let smsVerifyOtp = null;
+        let smsCountdownTimer = null;
+        let homeThemeMode = localStorage.getItem(THEME_KEY) || 'system';
+        const queryHomeLang = new URLSearchParams(window.location.search).get('lang');
+        let homeLang = queryHomeLang || localStorage.getItem(HOME_LANG_KEY) || 'en';
+
+        function resolvedHomeTheme(mode = homeThemeMode) {
+            if (mode === 'light' || mode === 'dark') return mode;
+            return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+
+        function applyHomeTheme(nextMode = homeThemeMode) {
+            homeThemeMode = nextMode || 'system';
+            document.documentElement.dataset.theme = resolvedHomeTheme(homeThemeMode);
+            localStorage.setItem(THEME_KEY, homeThemeMode);
+            const button = document.getElementById('home-theme-toggle');
+            if (button) {
+                button.textContent = homeThemeMode === 'light'
+                    ? homeCopy[homeLang].themeLight
+                    : homeThemeMode === 'dark'
+                        ? homeCopy[homeLang].themeDark
+                        : homeCopy[homeLang].themeSystem;
+            }
+        }
+
+        function cycleHomeTheme() {
+            const next = homeThemeMode === 'system' ? 'light' : homeThemeMode === 'light' ? 'dark' : 'system';
+            applyHomeTheme(next);
+        }
+
+        function applyHomeLanguage(nextLang) {
+            homeLang = nextLang === 'zh-CN' ? 'zh-CN' : 'en';
+            localStorage.setItem(HOME_LANG_KEY, homeLang);
+            document.documentElement.lang = homeLang;
+            document.getElementById('home-language').value = homeLang;
+            document.querySelectorAll('[data-i18n-home]').forEach(node => {
+                const key = node.dataset.i18nHome;
+                if (homeCopy[homeLang][key]) {
+                    node.textContent = homeCopy[homeLang][key];
+                }
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(node => {
+                const key = node.dataset.i18nPlaceholder;
+                if (homeCopy[homeLang][key]) node.placeholder = homeCopy[homeLang][key];
+            });
+            document.querySelectorAll('[data-i18n-title]').forEach(node => {
+                const key = node.dataset.i18nTitle;
+                if (!homeCopy[homeLang][key]) return;
+                node.title = homeCopy[homeLang][key];
+                node.setAttribute('aria-label', homeCopy[homeLang][key]);
+            });
+            setAuthMode(authMode);
+            updateAuthButton();
+            updateGeneratorLink();
+            applyHomeTheme(homeThemeMode);
+            renderExamplesStatus();
+            if (projects.length) renderProjects(activeFilter);
+        }
+
+        function updateGeneratorLink() {
+            const params = new URLSearchParams({ lang: homeLang });
+            const sessionToken = homeSessionToken();
+            const apiBase = getHomeApiBase();
+            const apiToken = localStorage.getItem('ppt-master-api-token') || '';
+            const handoff = createWorkbenchAuthHandoff(sessionToken);
+            if (sessionToken) params.set('session', sessionToken);
+            if (!sessionToken) params.set('guest', '1');
+            if (apiBase) params.set('api', apiBase);
+            if (apiToken) params.set('token', apiToken);
+            document.getElementById('open-generator').href = `cloud-generator.html?${params.toString()}${handoff ? `#pptAuth=${handoff}` : ''}`;
+        }
+
+        function safeReturnToTarget() {
+            const raw = new URLSearchParams(window.location.search).get('returnTo') || '';
+            if (!raw) return '';
+            try {
+                const decoded = decodeURIComponent(raw);
+                const target = new URL(decoded, window.location.href);
+                if (target.origin !== window.location.origin) return '';
+                if (!target.pathname.endsWith('/cloud-generator.html') && target.pathname !== '/cloud-generator.html') return '';
+                return `${target.pathname.split('/').pop()}${target.search}`;
+            } catch (_error) {
+                return '';
+            }
+        }
+
+        function redirectToReturnTargetIfAuthenticated() {
+            const target = safeReturnToTarget();
+            if (!target) return false;
+            const sessionToken = homeSessionToken();
+            const handoff = createWorkbenchAuthHandoff(sessionToken);
+            if (!handoff) return false;
+            window.location.href = `${target}#pptAuth=${handoff}`;
+            return true;
+        }
+
+        function homeApiHeaders() {
+            const headers = { 'Content-Type': 'application/json' };
+            const token = homeSessionToken();
+            if (token) headers['X-PPT-Master-Session'] = token;
+            return headers;
+        }
+
+        function homeDisplayName(session) {
+            const phone = String(session?.phone || '').replace(/\D/g, '');
+            const fallback = session?.email ? String(session.email).split('@')[0] : (phone ? `用户${phone.slice(-4)}` : 'Best PPT');
+            return String(session?.display_name || session?.name || '').trim() || fallback;
+        }
+
+        function homeInitial(label) {
+            const clean = String(label || '').trim();
+            return clean ? clean.slice(0, 1).toUpperCase() : 'B';
+        }
+
+        function paintHomeAvatar(node, label, avatarUrl = '') {
+            if (!node) return;
+            const value = String(avatarUrl || '').trim();
+            if (value) {
+                node.classList.add('has-account-image');
+                node.style.backgroundImage = `url("${value.replace(/"/g, '%22')}")`;
+                node.textContent = '';
+                return;
+            }
+            node.classList.remove('has-account-image');
+            node.style.backgroundImage = '';
+            node.textContent = homeInitial(label);
+        }
+
+        async function refreshHomeMembership() {
+            if (!homeSessionToken()) return;
+            try {
+                const response = await fetch(`${DEFAULT_API_BASE}/membership`, {
+                    cache: 'no-cache',
+                    headers: homeApiHeaders(),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.authenticated) {
+                    if (response.status === 401 || response.status === 403) clearHomeAuthSession();
+                    return;
+                }
+                localStorage.setItem(HOME_SESSION_KEY, JSON.stringify({
+                    ...(homeSessionUser() || {}),
+                    ...(data.user || {}),
+                    plan: data.plan || data.user?.plan || 'free',
+                    quota: data.quota || data.user?.quota || null,
+                }));
+                updateAuthButton();
+                updateGeneratorLink();
+            } catch (_error) {
+                updateAuthButton();
+            }
+        }
+
+        function updateAuthButton() {
+            const session = homeSessionUser();
+            const loginButton = document.getElementById('auth-login');
+            const signupButton = document.getElementById('auth-register');
+            const accountMenu = document.getElementById('home-account-menu');
+            if (!session || !homeSessionToken()) {
+                localStorage.removeItem(HOME_SESSION_KEY);
+                loginButton.textContent = homeCopy[homeLang].loginButton;
+                loginButton.classList.remove('account');
+                loginButton.setAttribute('aria-expanded', 'false');
+                if (accountMenu) accountMenu.hidden = true;
+                signupButton.hidden = false;
+                return;
+            }
+            const name = homeDisplayName(session);
+            const plan = String(session.plan || 'free');
+            loginButton.textContent = `${name} · ${plan.charAt(0).toUpperCase()}${plan.slice(1)}`;
+            loginButton.classList.add('account');
+            loginButton.setAttribute('aria-expanded', String(accountMenu ? !accountMenu.hidden : false));
+            signupButton.hidden = true;
+            renderHomeAccountMenu();
+        }
+
+        function renderHomeAccountMenu() {
+            const session = homeSessionUser();
+            const nameNode = document.getElementById('home-account-name');
+            const metaNode = document.getElementById('home-account-meta');
+            const avatarNode = document.getElementById('home-account-avatar');
+            if (!nameNode || !metaNode || !session) return;
+            const display = homeDisplayName(session);
+            const plan = String(session.plan || 'free');
+            nameNode.textContent = display;
+            paintHomeAvatar(avatarNode, display, session.avatar_url || '');
+            metaNode.textContent = `${homeCopy[homeLang].accountSignedInAs} · ${homeCopy[homeLang].accountMenuPlan.replace('{plan}', plan.charAt(0).toUpperCase() + plan.slice(1))}`;
+        }
+
+        function hydrateContactQr() {
+            document.querySelectorAll('[data-qr-src]').forEach(box => {
+                if (box.dataset.loaded === '1') return;
+                const img = new Image();
+                img.alt = box.textContent.trim() || 'QR code';
+                img.onload = () => {
+                    box.textContent = '';
+                    box.appendChild(img);
+                    box.dataset.loaded = '1';
+                };
+                img.onerror = () => {
+                    box.innerHTML = `<span>${homeCopy[homeLang].qrMissing}</span>`;
+                    box.dataset.loaded = '1';
+                };
+                img.src = box.dataset.qrSrc;
+            });
+        }
+
+        function openContactModal() {
+            hydrateContactQr();
+            document.getElementById('contact-modal')?.classList.add('show');
+        }
+
+        function closeContactModal() {
+            document.getElementById('contact-modal')?.classList.remove('show');
+        }
+
+        function closeHomeAccountMenu() {
+            const menu = document.getElementById('home-account-menu');
+            const loginButton = document.getElementById('auth-login');
+            if (menu) menu.hidden = true;
+            if (loginButton) loginButton.setAttribute('aria-expanded', 'false');
+        }
+
+        function toggleHomeAccountMenu() {
+            const menu = document.getElementById('home-account-menu');
+            const loginButton = document.getElementById('auth-login');
+            if (!menu || !loginButton) return;
+            if (!isHomeSignedIn()) {
+                openAuthModal('login');
+                return;
+            }
+            renderHomeAccountMenu();
+            menu.hidden = !menu.hidden;
+            loginButton.setAttribute('aria-expanded', String(!menu.hidden));
+        }
+
+        function getHomeApiBase() {
+            const queryApi = new URLSearchParams(window.location.search).get('api');
+            if (queryApi) {
+                localStorage.setItem('ppt-master-api-base', queryApi);
+                return queryApi.replace(/\/$/, '');
+            }
+            const storedApi = localStorage.getItem('ppt-master-api-base');
+            if (PRODUCTION_HOSTS.has(window.location.hostname)) {
+                localStorage.setItem('ppt-master-api-base', PRODUCTION_API_BASE);
+                return PRODUCTION_API_BASE;
+            }
+            if (storedApi) return storedApi.replace(/\/$/, '');
+            return DEFAULT_API_BASE;
+        }
+
+        function getSupabaseConfig() {
+            const params = new URLSearchParams(window.location.search);
+            const queryUrl = params.get('supabaseUrl') || params.get('supabase_url');
+            const queryAnonKey = params.get('supabaseAnonKey') || params.get('supabase_anon_key');
+            if (queryUrl) localStorage.setItem(SUPABASE_URL_KEY, queryUrl);
+            if (queryAnonKey) localStorage.setItem(SUPABASE_ANON_KEY_KEY, queryAnonKey);
+            const url = (queryUrl || window.PPT_MASTER_SUPABASE_URL || localStorage.getItem(SUPABASE_URL_KEY) || '').trim();
+            const anonKey = (queryAnonKey || window.PPT_MASTER_SUPABASE_ANON_KEY || localStorage.getItem(SUPABASE_ANON_KEY_KEY) || '').trim();
+            return { url: url.replace(/\/$/, ''), anonKey };
+        }
+
+        function getCloudBaseConfig() {
+            const params = new URLSearchParams(window.location.search);
+            const queryEnvId = params.get('cloudbaseEnvId') || params.get('cloudbase_env_id') || params.get('tcbEnvId') || params.get('tcb_env_id');
+            const queryClientId = params.get('cloudbaseClientId') || params.get('cloudbase_client_id') || params.get('tcbClientId') || params.get('tcb_client_id');
+            const queryPublishableKey = params.get('cloudbasePublishableKey') || params.get('cloudbase_publishable_key') || params.get('tcbPublishableKey') || params.get('tcb_publishable_key');
+            const queryBaseUrl = params.get('cloudbaseAuthBase') || params.get('cloudbase_auth_base') || params.get('tcbAuthBase') || params.get('tcb_auth_base');
+            if (queryEnvId) localStorage.setItem(CLOUDBASE_ENV_ID_KEY, queryEnvId);
+            if (queryClientId) localStorage.setItem(CLOUDBASE_CLIENT_ID_KEY, queryClientId);
+            if (queryPublishableKey) localStorage.setItem(CLOUDBASE_PUBLISHABLE_KEY_KEY, queryPublishableKey);
+            if (queryBaseUrl) localStorage.setItem(CLOUDBASE_AUTH_BASE_KEY, queryBaseUrl);
+            const envId = (queryEnvId || window.PPT_MASTER_CLOUDBASE_ENV_ID || window.PPT_MASTER_TCB_ENV_ID || localStorage.getItem(CLOUDBASE_ENV_ID_KEY) || '').trim();
+            const clientId = (queryClientId || window.PPT_MASTER_CLOUDBASE_CLIENT_ID || window.PPT_MASTER_TCB_CLIENT_ID || localStorage.getItem(CLOUDBASE_CLIENT_ID_KEY) || '').trim();
+            const publishableKey = (queryPublishableKey || window.PPT_MASTER_CLOUDBASE_PUBLISHABLE_KEY || window.PPT_MASTER_TCB_PUBLISHABLE_KEY || localStorage.getItem(CLOUDBASE_PUBLISHABLE_KEY_KEY) || '').trim();
+            const configuredBase = (queryBaseUrl || window.PPT_MASTER_CLOUDBASE_AUTH_BASE_URL || window.PPT_MASTER_TCB_AUTH_BASE_URL || localStorage.getItem(CLOUDBASE_AUTH_BASE_KEY) || '').trim().replace(/\/$/, '');
+            const authBase = configuredBase || (envId ? `https://${envId}.ap-shanghai.tcb-api.tencentcloudapi.com` : '');
+            return { envId, clientId, publishableKey, authBase };
+        }
+
+        function getClerkConfig() {
+            const params = new URLSearchParams(window.location.search);
+            const queryKey = params.get('clerkKey') || params.get('clerk_publishable_key');
+            if (queryKey) localStorage.setItem(CLERK_PUBLISHABLE_KEY_KEY, queryKey);
+            const publishableKey = (queryKey || window.PPT_MASTER_CLERK_PUBLISHABLE_KEY || localStorage.getItem(CLERK_PUBLISHABLE_KEY_KEY) || '').trim();
+            return { publishableKey };
+        }
+
+        function isChinaEntry() {
+            const host = window.location.hostname.toLowerCase();
+            return CHINA_HOSTS.has(host) || host.startsWith('cn.') || host.endsWith('.cn');
+        }
+
+        function activeAuthProvider() {
+            const params = new URLSearchParams(window.location.search);
+            const queryProvider = params.get('authProvider') || params.get('auth_provider');
+            if (queryProvider) localStorage.setItem('ppt-master-auth-provider', queryProvider);
+            const provider = String(
+                queryProvider ||
+                window.PPT_MASTER_AUTH_PROVIDER ||
+                localStorage.getItem('ppt-master-auth-provider') ||
+                (getCloudBaseConfig().authBase ? 'cloudbase' : 'local')
+            ).toLowerCase();
+            return ['cloudbase', 'supabase', 'clerk'].includes(provider) ? provider : 'local';
+        }
+
+        function cloudbaseEnabled() {
+            const config = getCloudBaseConfig();
+            return activeAuthProvider() === 'cloudbase' && Boolean(config.authBase);
+        }
+
+        function getStoredSupabaseSession() {
+            try {
+                return JSON.parse(localStorage.getItem(SUPABASE_SESSION_KEY) || 'null');
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        function encodeAuthHandoff(payload) {
+            try {
+                return encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
+            } catch (_error) {
+                return '';
+            }
+        }
+
+        function createWorkbenchAuthHandoff(sessionToken) {
+            if (!sessionToken) return '';
+            const provider = activeAuthProvider();
+            const supabaseSession = provider === 'supabase' ? getStoredSupabaseSession() : null;
+            const cloudbaseSession = provider === 'cloudbase' ? getStoredCloudBaseSession() : null;
+            const clerkSession = provider === 'clerk' ? getStoredClerkSession() : null;
+            const homeSession = JSON.parse(localStorage.getItem(HOME_SESSION_KEY) || 'null');
+            const payload = {
+                v: 1,
+                created_at: Date.now(),
+                auth_provider: provider,
+                session_token: sessionToken || '',
+                supabase_session: supabaseSession?.access_token ? supabaseSession : null,
+                cloudbase_session: cloudbaseSession?.access_token ? cloudbaseSession : null,
+                clerk_session: clerkSession?.access_token ? clerkSession : null,
+                home_session: homeSession || null,
+            };
+            return encodeAuthHandoff(payload);
+        }
+
+        function homeSessionToken() {
+            return localStorage.getItem(HOME_SESSION_TOKEN_KEY) || '';
+        }
+
+        function homeSessionUser() {
+            try {
+                return JSON.parse(localStorage.getItem(HOME_SESSION_KEY) || 'null') || null;
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        function isHomeSignedIn() {
+            return Boolean(homeSessionToken() && homeSessionUser());
+        }
+
+        function clearHomeAuthSession() {
+            localStorage.removeItem(HOME_SESSION_TOKEN_KEY);
+            localStorage.removeItem(HOME_SESSION_KEY);
+            localStorage.removeItem(CLOUDBASE_SESSION_KEY);
+            localStorage.removeItem(SUPABASE_SESSION_KEY);
+            localStorage.removeItem(CLERK_SESSION_KEY);
+            closeHomeAccountMenu();
+            updateAuthButton();
+            updateGeneratorLink();
+        }
+
+        function getStoredCloudBaseSession() {
+            try {
+                return JSON.parse(localStorage.getItem(CLOUDBASE_SESSION_KEY) || 'null');
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        function storeCloudBaseSession(session) {
+            if (!session?.access_token) {
+                localStorage.removeItem(CLOUDBASE_SESSION_KEY);
+                return;
+            }
+            localStorage.setItem(CLOUDBASE_SESSION_KEY, JSON.stringify({
+                ...session,
+                created_at_epoch: session.created_at_epoch || Date.now() / 1000,
+            }));
+        }
+
+        function cloudbaseAccessToken() {
+            const session = getStoredCloudBaseSession();
+            if (!session?.access_token) return '';
+            const createdAt = Number(session.created_at_epoch || 0);
+            const expiresIn = Number(session.expires_in || 0);
+            if (createdAt && expiresIn && createdAt + expiresIn - 60 < Date.now() / 1000) {
+                localStorage.removeItem(CLOUDBASE_SESSION_KEY);
+                return '';
+            }
+            return session.access_token;
+        }
+
+        function getStoredClerkSession() {
+            try {
+                return JSON.parse(localStorage.getItem(CLERK_SESSION_KEY) || 'null');
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        function storeClerkSession(session) {
+            if (!session?.access_token) {
+                localStorage.removeItem(CLERK_SESSION_KEY);
+                return;
+            }
+            localStorage.setItem(CLERK_SESSION_KEY, JSON.stringify({
+                ...session,
+                created_at_epoch: session.created_at_epoch || Date.now() / 1000,
+            }));
+        }
+
+        function clerkAccessToken() {
+            const session = getStoredClerkSession();
+            if (!session?.access_token) return '';
+            const expiresAt = Number(session.expires_at_epoch || 0);
+            if (expiresAt && expiresAt - 60 < Date.now() / 1000) {
+                localStorage.removeItem(CLERK_SESSION_KEY);
+                return '';
+            }
+            return session.access_token;
+        }
+
+        function shouldRefreshHomeAuth() {
+            const provider = activeAuthProvider();
+            return Boolean(
+                homeSessionToken() ||
+                (provider === 'supabase' && getStoredSupabaseSession()?.access_token) ||
+                (provider === 'cloudbase' && cloudbaseAccessToken()) ||
+                (provider === 'clerk' && clerkAccessToken())
+            );
+        }
+
+        function storeSupabaseSession(session) {
+            if (!session?.access_token) {
+                localStorage.removeItem(SUPABASE_SESSION_KEY);
+                return;
+            }
+            localStorage.setItem(SUPABASE_SESSION_KEY, JSON.stringify(session));
+        }
+
+        async function getSupabaseClient() {
+            if (supabaseClient) return supabaseClient;
+            const config = getSupabaseConfig();
+            if (!config.url || !config.anonKey) return null;
+            const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+            supabaseClient = createClient(config.url, config.anonKey, {
+                auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+            });
+            return supabaseClient;
+        }
+
+        function loadExternalScript(src) {
+            return new Promise((resolve, reject) => {
+                const existing = document.querySelector(`script[src="${src}"]`);
+                if (existing?.dataset.loaded === '1') {
+                    resolve();
+                    return;
+                }
+                if (existing) {
+                    existing.addEventListener('load', resolve, { once: true });
+                    existing.addEventListener('error', reject, { once: true });
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.onload = () => {
+                    script.dataset.loaded = '1';
+                    resolve();
+                };
+                script.onerror = () => reject(new Error(`Failed to load ${src}`));
+                document.head.appendChild(script);
+            });
+        }
+
+        async function getCloudBaseAuthClient() {
+            if (cloudbaseAuthClient) return cloudbaseAuthClient;
+            const config = getCloudBaseConfig();
+            if (!config.envId) throw new Error('CloudBase Auth is not configured');
+            if (!window.cloudbase) {
+                await loadExternalScript('cloudbase-browser.js');
+            }
+            const initOptions = {
+                env: config.envId,
+                region: 'ap-shanghai',
+                auth: { detectSessionInUrl: true },
+            };
+            if (config.authBase) {
+                initOptions.apiOrigin = config.authBase;
+                initOptions.apiPath = '/auth';
+            }
+            if (config.publishableKey) initOptions.accessKey = config.publishableKey;
+            cloudbaseApp = window.cloudbase.init(initOptions);
+            cloudbaseAuthClient = cloudbaseApp.auth();
+            return cloudbaseAuthClient;
+        }
+
+        function normalizeCloudBaseSession(sessionLike) {
+            const session = sessionLike?.session || sessionLike?.data?.session || sessionLike?.data || sessionLike || {};
+            const accessToken = session.access_token || session.accessToken || session.token || session.id_token || session.idToken || '';
+            if (!accessToken) return null;
+            return {
+                access_token: accessToken,
+                refresh_token: session.refresh_token || session.refreshToken || '',
+                expires_in: session.expires_in || session.expiresIn || 7200,
+                created_at_epoch: Math.floor(Date.now() / 1000),
+            };
+        }
+
+        function getAuthRedirectUrl() {
+            const params = new URLSearchParams({ lang: homeLang });
+            const isHttpPage = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+            const isLocalHost = ['localhost', '127.0.0.1', '::1', ''].includes(window.location.hostname);
+            if (isHttpPage && !isLocalHost) {
+                const apiBase = getHomeApiBase();
+                if (apiBase) params.set('api', apiBase);
+                return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+            }
+            params.set('api', PRODUCTION_API_BASE);
+            return `https://ppt-cn.aigcstory.site/index.html?${params.toString()}`;
+        }
+
+        async function refreshSupabaseSession() {
+            const client = await getSupabaseClient();
+            if (!client) return null;
+            const { data } = await client.auth.getSession();
+            if (data?.session) storeSupabaseSession(data.session);
+            return data?.session || getStoredSupabaseSession();
+        }
+
+        async function getClerkClient() {
+            if (clerkClient) return clerkClient;
+            const config = getClerkConfig();
+            if (!config.publishableKey) return null;
+            if (!window.Clerk) await loadExternalScript('https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js');
+            clerkClient = new window.Clerk(config.publishableKey);
+            await clerkClient.load();
+            return clerkClient;
+        }
+
+        async function refreshClerkSession() {
+            if (clerkAccessToken()) return getStoredClerkSession();
+            try {
+                const client = await getClerkClient();
+                if (!client?.session) return getStoredClerkSession();
+                const token = await client.session.getToken();
+                if (!token) return getStoredClerkSession();
+                storeClerkSession({
+                    access_token: token,
+                    expires_at_epoch: Math.floor(Date.now() / 1000) + 3600,
+                    user: {
+                        email: client.user?.primaryEmailAddress?.emailAddress || '',
+                        id: client.user?.id || '',
+                    },
+                });
+                return getStoredClerkSession();
+            } catch (_error) {
+                return getStoredClerkSession();
+            }
+        }
+
+        async function openClerkAuth(mode = 'login') {
+            const client = await getClerkClient();
+            if (!client) return false;
+            const afterSignInUrl = `${window.location.origin}${window.location.pathname}?${new URLSearchParams({ lang: homeLang, api: getHomeApiBase() }).toString()}`;
+            const options = { afterSignInUrl, afterSignUpUrl: afterSignInUrl };
+            if (mode === 'register') client.openSignUp(options);
+            else client.openSignIn(options);
+            return true;
+        }
+
+        function setAuthMode(mode) {
+            authMode = mode === 'register' ? 'register' : 'login';
+            const copySet = homeCopy[homeLang];
+            document.querySelectorAll('[data-auth-tab]').forEach(tab => tab.classList.toggle('active', tab.dataset.authTab === authMode));
+            document.getElementById('auth-title').textContent = authMethod === 'phone'
+                ? copySet.authTitlePhone
+                : copySet[authMode === 'register' ? 'authTitleRegister' : 'authTitleLogin'];
+            document.getElementById('auth-switch-copy').textContent = copySet[authMode === 'register' ? 'authSwitchLogin' : 'authSwitchRegister'];
+            document.getElementById('auth-switch-btn').textContent = copySet[authMode === 'register' ? 'authSwitchLoginAction' : 'authSwitchRegisterAction'];
+            document.getElementById('auth-message').textContent = '';
+            document.getElementById('auth-password').autocomplete = authMode === 'register' ? 'new-password' : 'current-password';
+            document.getElementById('auth-confirm-wrap').hidden = authMode !== 'register' || authMethod !== 'email';
+            document.getElementById('auth-confirm-password').value = '';
+            updateAuthMethodView();
+        }
+
+        function setAuthMethod(method) {
+            authMethod = method === 'phone' ? 'phone' : 'email';
+            smsVerificationInfo = null;
+            smsVerifyOtp = null;
+            document.getElementById('auth-message').textContent = '';
+            updateAuthMethodView();
+        }
+
+        function updateAuthMethodView() {
+            const copySet = homeCopy[homeLang];
+            document.querySelectorAll('[data-auth-method]').forEach(tab => tab.classList.toggle('active', tab.dataset.authMethod === authMethod));
+            document.getElementById('auth-title').textContent = authMethod === 'phone'
+                ? copySet.authTitlePhone
+                : copySet[authMode === 'register' ? 'authTitleRegister' : 'authTitleLogin'];
+            document.getElementById('auth-email-fields').hidden = authMethod !== 'email';
+            document.getElementById('auth-phone-fields').hidden = authMethod !== 'phone';
+            document.getElementById('auth-confirm-wrap').hidden = authMode !== 'register' || authMethod !== 'email';
+            document.getElementById('auth-submit').textContent = authMethod === 'phone'
+                ? copySet.authSubmitPhone
+                : copySet[authMode === 'register' ? 'authSubmitRegister' : 'authSubmitLogin'];
+            if (!smsCountdownTimer) document.getElementById('auth-send-code').textContent = copySet.sendCode;
+        }
+
+        function setPasswordVisibility(inputId, visible) {
+            const input = document.getElementById(inputId);
+            const button = document.querySelector(`[data-toggle-password="${inputId}"]`);
+            if (!input || !button) return;
+            input.type = visible ? 'text' : 'password';
+            const key = visible ? 'hidePassword' : 'showPassword';
+            button.textContent = visible ? '◉' : '👁';
+            button.title = homeCopy[homeLang][key];
+            button.setAttribute('aria-label', homeCopy[homeLang][key]);
+        }
+
+        function openAuthModal(mode = 'login') {
+            if (activeAuthProvider() === 'clerk' && getClerkConfig().publishableKey) {
+                openClerkAuth(mode).catch(() => {});
+                return;
+            }
+            setAuthMode(mode);
+            const rememberedEmail = localStorage.getItem('ppt-master-auth-email') || '';
+            if (rememberedEmail && !document.getElementById('auth-email').value) {
+                document.getElementById('auth-email').value = rememberedEmail;
+            }
+            document.getElementById('auth-modal').classList.add('show');
+            setTimeout(() => document.getElementById('auth-email').focus(), 0);
+        }
+
+        function closeAuthModal() {
+            document.getElementById('auth-modal').classList.remove('show');
+        }
+
+        async function submitAuth(mode, email, password) {
+            const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
+            const response = await fetch(`${getHomeApiBase()}/auth/${mode}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, auto_register: false, referral_code: referralCode }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            return data;
+        }
+
+        async function createBackendSession(email, password) {
+            const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
+            const response = await fetch(`${getHomeApiBase()}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    auto_register: true,
+                    referral_code: referralCode,
+                }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.session_token) {
+                const error = new Error(data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            return data;
+        }
+
+        async function attachBackendSession(externalData, email, password) {
+            try {
+                const backendData = await createBackendSession(email, password);
+                return {
+                    ...externalData,
+                    ...backendData,
+                    user: {
+                        ...(externalData.user || {}),
+                        ...(backendData.user || {}),
+                    },
+                    external_auth_provider: externalData.user?.auth_provider || externalData.external_auth_provider || '',
+                };
+            } catch (error) {
+                if (!externalData?.session_token) throw error;
+                return externalData;
+            }
+        }
+
+        async function cloudbaseAuthRequest(path, payload) {
+            const config = getCloudBaseConfig();
+            if (!config.authBase) throw new Error('CloudBase Auth is not configured');
+            const body = { ...payload };
+            if (config.clientId) body.client_id = config.clientId;
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.publishableKey) headers.Authorization = `Bearer ${config.publishableKey}`;
+            const response = await fetch(`${config.authBase}/auth/v1/${path}`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(data.error_description || data.message || data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            return data.data && typeof data.data === 'object' ? data.data : data;
+        }
+
+        function normalizePhoneNumber(value) {
+            const raw = String(value || "").trim();
+            if (!raw) return "";
+            const digits = raw.replace(/\D/g, "");
+            if (!digits) return "";
+            if (digits.startsWith("86") && digits.length === 13) return digits.slice(2);
+            return digits;
+        }
+
+        function validateMainlandPhone(value) {
+            const phone = normalizePhoneNumber(value);
+            return /^1\d{10}$/.test(phone) ? phone : "";
+        }
+
+        function isAuthNetworkFailure(error) {
+            const message = String(error?.message || error?.error_description || error || '').toLowerCase();
+            return !error?.status && (
+                message.includes('failed to fetch') ||
+                message.includes('network') ||
+                message.includes('cors') ||
+                message.includes('load failed') ||
+                message.includes('请求失败') ||
+                message.includes('暂时连不上')
+            );
+        }
+
+        function cloudbaseUserFromSession(session, fallback = {}) {
+            const user = session?.user || session?.data?.user || fallback || {};
+            return {
+                email: user.email || fallback.email || "",
+                phone: user.phone_number || user.phone || fallback.phone || "",
+                plan: "free",
+                auth_provider: "cloudbase",
+            };
+        }
+
+        async function cloudbaseEmailSignInOrRegister(email, password) {
+            const username = email.trim().toLowerCase();
+            const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
+            const mode = authMode === 'register' ? 'register' : 'login';
+            const response = await fetch(`${getHomeApiBase()}/auth/cloudbase/email/${mode}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: username, password, referral_code: referralCode }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            const cloudbaseSession = normalizeCloudBaseSession(data.cloudbase_session || {});
+            if (cloudbaseSession) storeCloudBaseSession(cloudbaseSession);
+            return {
+                ...data,
+                user: {
+                    ...(data.user || {}),
+                    email: data.user?.email || username,
+                    auth_provider: data.user?.auth_provider || 'cloudbase',
+                },
+            };
+        }
+
+        async function startSmsCodeViaBackend(phoneNum) {
+            const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
+            const response = await fetch(`${getHomeApiBase()}/auth/cloudbase/sms/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: phoneNum, referral_code: referralCode }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = new Error(data.error || `HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            smsVerificationInfo = { backend_proxy: true, challenge_id: data.challenge_id };
+            smsVerifyOtp = async ({ token }) => {
+                const verifyResponse = await fetch(`${getHomeApiBase()}/auth/cloudbase/sms/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone: phoneNum, code: token, challenge_id: data.challenge_id }),
+                });
+                const verifyData = await verifyResponse.json().catch(() => ({}));
+                if (!verifyResponse.ok) {
+                    const error = new Error(verifyData.error || `HTTP ${verifyResponse.status}`);
+                    error.status = verifyResponse.status;
+                    throw error;
+                }
+                return { data: verifyData, error: null };
+            };
+            return smsVerificationInfo;
+        }
+
+        async function sendSmsCode() {
+            if (!cloudbaseEnabled()) throw new Error(homeCopy[homeLang].authCloudBaseMissing);
+            const phoneNum = validateMainlandPhone(document.getElementById('auth-phone').value);
+            if (!phoneNum) throw new Error(homeCopy[homeLang].phoneInvalid);
+            return startSmsCodeViaBackend(phoneNum);
+        }
+
+        async function cloudbaseSmsSignIn() {
+            const phoneNum = validateMainlandPhone(document.getElementById('auth-phone').value);
+            const verificationCode = document.getElementById('auth-sms-code').value.trim();
+            if (!phoneNum) throw new Error(homeCopy[homeLang].phoneInvalid);
+            if (!verificationCode) throw new Error(homeCopy[homeLang].phoneRequired);
+            if (!smsVerificationInfo) await sendSmsCode();
+            if (typeof smsVerifyOtp !== 'function') throw new Error(homeCopy[homeLang].codeNotSent);
+            const result = await smsVerifyOtp({ token: verificationCode });
+            if (result?.error) throw result.error;
+            const data = result?.data || result;
+            if (data.session_token) {
+                const cloudbaseSession = normalizeCloudBaseSession(data.cloudbase_session || {});
+                if (cloudbaseSession) storeCloudBaseSession(cloudbaseSession);
+                return data;
+            }
+            throw new Error(homeCopy[homeLang].authSessionMissing);
+        }
+
+        async function signInOrRegister(email, password) {
+            const provider = activeAuthProvider();
+            if (provider === 'cloudbase' && cloudbaseEnabled()) {
+                return authMethod === 'phone'
+                    ? cloudbaseSmsSignIn()
+                    : cloudbaseEmailSignInOrRegister(email, password);
+            }
+            const client = provider === 'supabase' ? await getSupabaseClient() : null;
+            if (client) {
+                const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
+                const result = authMode === 'register'
+                    ? await client.auth.signUp({
+                        email,
+                        password,
+                        options: {
+                            emailRedirectTo: getAuthRedirectUrl(),
+                            data: { referral_code: referralCode },
+                        },
+                    })
+                    : await client.auth.signInWithPassword({ email, password });
+                if (result.error) throw result.error;
+                const session = result.data?.session || null;
+                if (!session && authMode === 'register') {
+                    return { pending_confirmation: true, user: { email, plan: 'free', auth_provider: 'supabase' } };
+                }
+                if (session) storeSupabaseSession(session);
+                return { session_token: '', user: { email: result.data?.user?.email || email, plan: 'free', auth_provider: 'supabase' } };
+            }
+            return submitAuth(authMode, email, password);
+        }
+
+        function humanizeAuthError(error) {
+            const message = String(error?.message || error || "");
+            const lower = message.toLowerCase();
+            if (
+                lower.includes("user not found") ||
+                lower.includes("user does not exist") ||
+                lower.includes("user doesn't exist") ||
+                lower.includes("account does not exist") ||
+                lower.includes("account doesn't exist") ||
+                lower.includes("not registered") ||
+                lower.includes("no user") ||
+                message.includes("用户不存在") ||
+                message.includes("账号不存在") ||
+                message.includes("账户不存在") ||
+                message.includes("未注册")
+            ) {
+                return homeCopy[homeLang].authUserNotFound;
+            }
+            if (
+                lower.includes("already registered") ||
+                lower.includes("already exists") ||
+                lower.includes("user exists") ||
+                lower.includes("account exists") ||
+                message.includes("已存在") ||
+                message.includes("已经注册") ||
+                message.includes("已注册")
+            ) {
+                return homeCopy[homeLang].authAccountExists;
+            }
+            if (
+                lower.includes("password must be at least") ||
+                lower.includes("password should be at least") ||
+                lower.includes("weak password") ||
+                message.includes("密码") && (message.includes("至少") || message.includes("太短"))
+            ) {
+                return homeCopy[homeLang].authWeakPassword;
+            }
+            if (lower.includes("signuprequest.username") || lower.includes("regex pattern")) {
+                return homeLang === 'zh-CN'
+                    ? '注册信息格式不符合登录服务要求，请刷新页面后重试。'
+                    : 'The account format was not accepted by the login service. Please refresh and try again.';
+            }
+            if (
+                lower.includes("verification_required") ||
+                lower.includes("verification_token") ||
+                lower.includes("verification_code required") ||
+                lower.includes("verification code required") ||
+                message.includes("需要验证码")
+            ) {
+                return homeCopy[homeLang].authVerificationRequired;
+            }
+            if (
+                lower.includes("verification code") && (lower.includes("invalid") || lower.includes("expired") || lower.includes("incorrect")) ||
+                lower.includes("otp") && (lower.includes("invalid") || lower.includes("expired") || lower.includes("incorrect")) ||
+                message.includes("验证码") && (message.includes("错误") || message.includes("过期") || message.includes("无效"))
+            ) {
+                return homeCopy[homeLang].authCodeInvalid;
+            }
+            if (lower.includes("username or password") || lower.includes("password incorrect")) {
+                return homeCopy[homeLang].authInvalidCredentials;
+            }
+            if (lower.includes("invalid") && (lower.includes("password") || lower.includes("credential") || lower.includes("email"))) {
+                return homeCopy[homeLang].authInvalidCredentials;
+            }
+            if (lower.includes("security") || lower.includes("seconds") || lower.includes("too many") || lower.includes("rate") || lower.includes("text message per minute")) {
+                return homeCopy[homeLang].authTooFrequent;
+            }
+            if (lower.includes("failed to fetch") || lower.includes("network") || lower.includes("timeout")) {
+                return homeCopy[homeLang].authNetworkError;
+            }
+            return message;
+        }
+
+        function startSmsCountdown(seconds = 60) {
+            const button = document.getElementById('auth-send-code');
+            clearInterval(smsCountdownTimer);
+            let remaining = seconds;
+            button.disabled = true;
+            button.textContent = homeCopy[homeLang].resendCode.replace('{seconds}', remaining);
+            smsCountdownTimer = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearInterval(smsCountdownTimer);
+                    smsCountdownTimer = null;
+                    button.disabled = false;
+                    button.textContent = homeCopy[homeLang].sendCode;
+                    return;
+                }
+                button.textContent = homeCopy[homeLang].resendCode.replace('{seconds}', remaining);
+            }, 1000);
+        }
+
+        async function initProjects() {
+            try {
+                const data = await loadExamplesData();
+                projects = data.projects || [];
+                updateStats(data.stats);
+                renderExamplesStatus();
+                renderProjects(activeFilter);
+            } catch (error) {
+                showLoadError(error);
+            }
+        }
+
+        async function loadExamplesData() {
+            let lastError = null;
+
+            if (window.location.protocol !== 'file:') {
+                try {
+                    const response = await fetch(EXAMPLES_DATA_URL, { cache: 'no-cache' });
+                    if (!response.ok) {
+                        throw new Error(`Failed to load ${EXAMPLES_DATA_URL}: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    persistExamplesData(data);
+                    examplesSource = { mode: 'network', reason: '' };
+                    return data;
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            const cached = readCachedExamplesData();
+            if (cached?.projects?.length) {
+                examplesSource = {
+                    mode: 'cache',
+                    reason: window.location.protocol === 'file:' ? 'file' : 'fetch-failed',
+                };
+                return cached;
+            }
+
+            if (INLINE_EXAMPLES_DATA?.projects?.length) {
+                examplesSource = {
+                    mode: 'inline',
+                    reason: window.location.protocol === 'file:' ? 'file' : 'fetch-failed',
+                };
+                return cloneExamplesData(INLINE_EXAMPLES_DATA);
+            }
+
+            throw lastError || new Error(homeCopy[homeLang].examplesUnavailableBody);
+        }
+
+        function updateStats(stats = {}) {
+            document.getElementById('examples-count').textContent = stats.examples ?? projects.length;
+            document.getElementById('pages-count').textContent = stats.pages ?? projects.reduce((sum, project) => sum + (project.slides?.length || 0), 0);
+            document.getElementById('templates-count').textContent = stats.templates ?? '...';
+        }
+
+        function cloneExamplesData(data) {
+            return JSON.parse(JSON.stringify(data));
+        }
+
+        function persistExamplesData(data) {
+            try {
+                localStorage.setItem(EXAMPLES_CACHE_KEY, JSON.stringify(data));
+            } catch (error) {
+                console.warn('Unable to cache examples data.', error);
+            }
+        }
+
+        function readCachedExamplesData() {
+            try {
+                const raw = localStorage.getItem(EXAMPLES_CACHE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (error) {
+                console.warn('Unable to read cached examples data.', error);
+                return null;
+            }
+        }
+
+        function renderExamplesStatus() {
+            const status = document.getElementById('examples-status');
+            if (!status) return;
+
+            if (examplesSource.mode === 'network') {
+                status.classList.add('hidden');
+                status.innerHTML = '';
+                return;
+            }
+
+            const copySet = homeCopy[homeLang];
+            const isFileMode = examplesSource.reason === 'file';
+            status.innerHTML = `
+                <strong>${isFileMode ? copySet.examplesFileModeTitle : copySet.examplesFallbackTitle}</strong>
+                <span>${isFileMode ? copySet.examplesFileModeBody : copySet.examplesFallbackBody}</span>
+            `;
+            status.classList.remove('hidden');
+        }
+
+        function resolveViewerUrl(projectId) {
+            const url = new URL('viewer.html', window.location.href);
+            url.searchParams.set('project', projectId);
+            return url.href;
+        }
+
+        function resolveExampleAssetUrl(folder, file = '') {
+            const parts = ['examples', folder, file]
+                .filter(Boolean)
+                .map(part => String(part).replace(/^\/+|\/+$/g, ''));
+            return new URL(parts.join('/'), window.location.href).href;
+        }
+
+        function showLoadError(error) {
+            console.error(error);
+            const grid = document.getElementById('projects-grid');
+            const copySet = homeCopy[homeLang];
+            renderExamplesStatus();
+            grid.innerHTML = `
+                <article class="project-card">
+                    <div class="card-content">
+                        <h3 class="card-title">${copySet.examplesUnavailableTitle}</h3>
+                        <p class="card-desc">${copySet.examplesUnavailableBody}</p>
+                    </div>
+                </article>
+            `;
+        }
+
+        // Render projects
+        function renderProjects(filter = 'all') {
+            const grid = document.getElementById('projects-grid');
+            grid.innerHTML = '';
+
+            const filtered = filter === 'all'
+                ? projects
+                : projects.filter(p => p.style === filter);
+
+            if (!filtered.length) {
+                grid.innerHTML = `
+                    <article class="project-card">
+                        <div class="card-content">
+                            <h3 class="card-title">${homeCopy[homeLang].examplesEmptyFilter}</h3>
+                            <p class="card-desc">${homeCopy[homeLang].showcaseTitle}</p>
+                        </div>
+                    </article>
+                `;
+                return;
+            }
+
+            filtered.forEach(project => {
+                const card = document.createElement('a');
+                card.className = 'project-card';
+                card.href = resolveViewerUrl(project.id);
+
+                const styleClass = `style-${project.style || 'general'}`;
+                const tags = project.tags || [];
+                const pages = project.slides?.length || 0;
+                const cover = project.cover || project.slides?.[0]?.file || '';
+                const folder = project.folder || `${project.id}/svg_final`;
+                const coverUrl = resolveExampleAssetUrl(folder, cover);
+                const description = project.desc || project.description || '';
+                const img = document.createElement('img');
+                img.src = coverUrl;
+                img.alt = project.title;
+                img.onerror = function () {
+                    this.onerror = null;
+                    this.parentElement.innerHTML = '<div class="placeholder">—</div>';
+                };
+
+                card.innerHTML = `
+                    <div class="card-preview">
+                        ${project.isNew ? '<span class="card-badge new">New</span>' : ''}
+                    </div>
+                    <div class="card-content">
+                        <h3 class="card-title">${project.title}</h3>
+                        <div class="card-meta">
+                            <span>${pages} pages</span>
+                            <span>·</span>
+                            <span>${project.styleName}</span>
+                        </div>
+                        <p class="card-desc">${description}</p>
+                        <div class="card-tags">
+                            <span class="tag ${styleClass}">${project.styleName}</span>
+                            ${tags.map(t => `<span class="tag">${t}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+
+                // Insert image into card-preview
+                const preview = card.querySelector('.card-preview');
+                preview.insertBefore(img, preview.firstChild);
+
+                grid.appendChild(card);
+            });
+        }
+
+        // Filter buttons
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                activeFilter = btn.dataset.filter;
+                renderProjects(activeFilter);
+            });
+        });
+
+        document.getElementById('home-language').addEventListener('change', event => {
+            applyHomeLanguage(event.target.value);
+        });
+
+        document.getElementById('auth-login').addEventListener('click', () => {
+            if (isHomeSignedIn()) {
+                toggleHomeAccountMenu();
+                return;
+            }
+            openAuthModal('login');
+        });
+
+        document.getElementById('auth-register').addEventListener('click', () => {
+            openAuthModal('register');
+        });
+
+        document.getElementById('home-account-menu')?.addEventListener('click', event => {
+            const action = event.target.closest('[data-home-account-action]')?.dataset.homeAccountAction;
+            if (!action) return;
+            if (action === 'workspace') {
+                window.location.href = document.getElementById('open-generator').href;
+            } else if (action === 'profile' || action === 'membership') {
+                window.location.href = document.getElementById('open-generator').href;
+            } else if (action === 'invite') {
+                window.location.href = document.getElementById('open-generator').href;
+            } else if (action === 'docs') {
+                window.open('docs/best-ppt-guide.html', '_blank', 'noopener');
+            } else if (action === 'contact') {
+                closeHomeAccountMenu();
+                openContactModal();
+            } else if (action === 'logout') {
+                clearHomeAuthSession();
+            }
+        });
+
+        document.addEventListener('click', event => {
+            const menu = document.getElementById('home-account-menu');
+            const loginButton = document.getElementById('auth-login');
+            if (!menu || menu.hidden) return;
+            if (menu.contains(event.target) || loginButton.contains(event.target)) return;
+            closeHomeAccountMenu();
+        });
+
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            closeHomeAccountMenu();
+            closeContactModal();
+        });
+
+        document.querySelectorAll('[data-auth-tab]').forEach(tab => {
+            tab.addEventListener('click', () => setAuthMode(tab.dataset.authTab));
+        });
+
+        document.querySelectorAll('[data-auth-method]').forEach(tab => {
+            tab.addEventListener('click', () => setAuthMethod(tab.dataset.authMethod));
+        });
+
+        document.querySelectorAll('[data-toggle-password]').forEach(button => {
+            button.addEventListener('click', () => {
+                const input = document.getElementById(button.dataset.togglePassword);
+                setPasswordVisibility(button.dataset.togglePassword, input?.type === 'password');
+            });
+        });
+
+        document.getElementById('auth-switch-btn').addEventListener('click', () => {
+            setAuthMode(authMode === 'register' ? 'login' : 'register');
+        });
+
+        document.getElementById('auth-close').addEventListener('click', () => {
+            closeAuthModal();
+        });
+
+        document.getElementById('contact-close').addEventListener('click', closeContactModal);
+        document.getElementById('footer-contact')?.addEventListener('click', openContactModal);
+
+        document.getElementById('contact-modal').addEventListener('click', event => {
+            if (event.target === event.currentTarget) closeContactModal();
+        });
+
+        document.getElementById('auth-modal').addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                document.getElementById('auth-submit').click();
+            }
+        });
+
+        document.getElementById('auth-send-code').addEventListener('click', async () => {
+            const button = document.getElementById('auth-send-code');
+            const message = document.getElementById('auth-message');
+            button.disabled = true;
+            message.textContent = '';
+            try {
+                await sendSmsCode();
+                message.textContent = homeCopy[homeLang].codeSent;
+                startSmsCountdown();
+            } catch (error) {
+                button.disabled = false;
+                message.textContent = humanizeAuthError(error);
+            }
+        });
+
+        document.getElementById('auth-submit').addEventListener('click', async () => {
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value;
+            const confirmPassword = document.getElementById('auth-confirm-password').value;
+            const submit = document.getElementById('auth-submit');
+            const message = document.getElementById('auth-message');
+            message.textContent = '';
+            if (authMethod === 'phone') {
+                const phone = validateMainlandPhone(document.getElementById('auth-phone').value);
+                const code = document.getElementById('auth-sms-code').value.trim();
+                if (!phone) {
+                    message.textContent = homeCopy[homeLang].phoneInvalid;
+                    return;
+                }
+                if (!code) {
+                    message.textContent = homeCopy[homeLang].phoneRequired;
+                    return;
+                }
+            } else if (!email || !password) {
+                message.textContent = homeCopy[homeLang].authRequired;
+                return;
+            }
+            if (authMethod === 'email' && authMode === 'register' && password !== confirmPassword) {
+                message.textContent = homeCopy[homeLang].passwordMismatch;
+                return;
+            }
+            submit.disabled = true;
+            try {
+                const data = await signInOrRegister(email, password);
+                if (data.pending_confirmation) {
+                    message.textContent = homeCopy[homeLang].authPendingConfirmation;
+                    return;
+                }
+                if (!data.session_token) {
+                    throw new Error(homeCopy[homeLang].authSessionMissing);
+                }
+                localStorage.setItem(HOME_SESSION_TOKEN_KEY, data.session_token);
+                if (document.getElementById('auth-remember').checked) {
+                    localStorage.setItem('ppt-master-auth-email', email);
+                } else {
+                    localStorage.removeItem('ppt-master-auth-email');
+                }
+                localStorage.setItem(HOME_SESSION_KEY, JSON.stringify({
+                    email: data.user?.email || email,
+                    phone: data.user?.phone || document.getElementById('auth-phone').value.trim() || '',
+                    name: data.user?.name || data.user?.display_name || '',
+                    display_name: data.user?.display_name || data.user?.name || '',
+                    avatar_url: data.user?.avatar_url || '',
+                    plan: data.user?.plan || 'free',
+                    quota: data.user?.quota || null,
+                    auth_provider: data.user?.auth_provider || 'cloudbase',
+                }));
+                updateAuthButton();
+                updateGeneratorLink();
+                closeAuthModal();
+                redirectToReturnTargetIfAuthenticated();
+            } catch (error) {
+                const prefix = authMode === 'register' ? homeCopy[homeLang].authRegisterFailed : homeCopy[homeLang].authFailed;
+                message.textContent = `${prefix}: ${humanizeAuthError(error)}`;
+            } finally {
+                submit.disabled = false;
+            }
+        });
+
+        document.getElementById('auth-modal').addEventListener('click', event => {
+            if (event.target.id === 'auth-modal') {
+                event.currentTarget.classList.remove('show');
+            }
+        });
+        document.getElementById('home-theme-toggle')?.addEventListener('click', cycleHomeTheme);
+        document.getElementById('footer-contact')?.addEventListener('click', () => {
+            document.getElementById('section-contact')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+            if (homeThemeMode === 'system') applyHomeTheme('system');
+        });
+
+        // Initial render
+        applyHomeLanguage(homeLang);
+        applyHomeTheme(homeThemeMode);
+        hydrateContactQr();
+        if (shouldRefreshHomeAuth()) {
+            const provider = activeAuthProvider();
+            if (provider === 'clerk') refreshClerkSession().catch(() => {});
+            if (provider === 'supabase') refreshSupabaseSession().catch(() => {});
+        }
+        const initialAuthMode = new URLSearchParams(window.location.search).get('auth');
+        if (initialAuthMode === 'login' || initialAuthMode === 'register') {
+            openAuthModal(initialAuthMode);
+        }
+        redirectToReturnTargetIfAuthenticated();
+        initProjects();
+    </script>
+</body>
+
+</html>

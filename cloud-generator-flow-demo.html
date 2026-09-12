@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Best PPT Flow Demo</title>
+    <style>
+        :root {
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --panel-soft: #f0f3f8;
+            --ink: #1b1f2a;
+            --muted: #6f7584;
+            --quiet: #a1a7b5;
+            --line: #e3e7ef;
+            --line-strong: #d5dbe7;
+            --brand: #315cff;
+            --brand-2: #7b8cff;
+            --success: #23a66f;
+            --warning: #d39b20;
+            --danger: #dc5b57;
+            --rail: #ffffff;
+            --canvas: #fbfcff;
+            --radius: 18px;
+            --shadow: 0 24px 70px rgba(35, 45, 78, 0.12);
+            --mono: "SFMono-Regular", "Cascadia Code", "Menlo", monospace;
+            --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 22% 100%, rgba(55, 142, 255, 0.16), transparent 34%),
+                radial-gradient(circle at 80% 18%, rgba(122, 140, 255, 0.14), transparent 32%),
+                var(--bg);
+            font-family: var(--sans);
+            line-height: 1.45;
+        }
+
+        button,
+        input,
+        select,
+        textarea {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        .app {
+            display: grid;
+            grid-template-columns: 64px minmax(0, 1fr) 440px;
+            min-height: 100vh;
+        }
+
+        .rail {
+            background: var(--rail);
+            border-right: 1px solid var(--line);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 18px 10px;
+            gap: 18px;
+        }
+
+        .logo {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: #0d111c;
+            color: #fff;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        .rail-btn {
+            width: 36px;
+            height: 36px;
+            border: 0;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--muted);
+            display: grid;
+            place-items: center;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .rail-btn.active,
+        .rail-btn:hover {
+            color: var(--brand);
+            background: #eef2ff;
+        }
+
+        .rail-spacer {
+            flex: 1;
+        }
+
+        .avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 1px solid var(--line-strong);
+            background: linear-gradient(135deg, #d8f0ff, #d9ffe7);
+            display: grid;
+            place-items: center;
+            color: #275044;
+            font-size: 0.78rem;
+            font-weight: 900;
+        }
+
+        .canvas {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            background: var(--canvas);
+        }
+
+        .topbar {
+            height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 0 30px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .title-block h1 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .title-block p {
+            margin: 2px 0 0;
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .account-strip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .pill {
+            min-height: 34px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            border-radius: 999px;
+            padding: 6px 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--muted);
+            font-size: 0.83rem;
+            white-space: nowrap;
+        }
+
+        .pill strong {
+            color: var(--ink);
+        }
+
+        .stage {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            place-items: center;
+            padding: 28px;
+        }
+
+        .empty-state,
+        .running-state,
+        .preview-state {
+            width: min(980px, 100%);
+        }
+
+        .empty-card {
+            min-height: 560px;
+            border-radius: 34px;
+            border: 1px solid var(--line);
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(243, 247, 255, 0.82)),
+                linear-gradient(90deg, transparent 0 48%, rgba(49, 92, 255, 0.04) 48% 52%, transparent 52%);
+            box-shadow: var(--shadow);
+            display: grid;
+            place-items: center;
+            text-align: center;
+            padding: 48px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .empty-card::after {
+            content: "";
+            position: absolute;
+            right: -90px;
+            bottom: -90px;
+            width: 360px;
+            height: 260px;
+            border-radius: 44px;
+            background: linear-gradient(135deg, #2e8cff, #95d7ff);
+            transform: rotate(-12deg);
+            opacity: 0.18;
+        }
+
+        .file-tile {
+            width: 132px;
+            height: 132px;
+            border-radius: 24px;
+            background: #fff;
+            border: 1px solid var(--line);
+            box-shadow: 0 18px 48px rgba(35, 45, 78, 0.1);
+            display: grid;
+            place-items: center;
+            margin: 0 auto 18px;
+            transform: rotate(-10deg);
+        }
+
+        .file-tile span {
+            color: #d8dde8;
+            font-size: 4rem;
+            font-weight: 900;
+        }
+
+        .empty-card h2,
+        .running-state h2 {
+            margin: 0;
+            font-size: clamp(1.45rem, 2.4vw, 2.2rem);
+            letter-spacing: 0;
+        }
+
+        .empty-card p,
+        .running-state p {
+            margin: 10px auto 0;
+            color: var(--muted);
+            max-width: 460px;
+        }
+
+        .running-card {
+            border-radius: 34px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            padding: 42px;
+        }
+
+        .progress-rail {
+            margin-top: 26px;
+            height: 10px;
+            border-radius: 999px;
+            background: var(--panel-soft);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--brand), var(--brand-2));
+            border-radius: inherit;
+            transition: width 0.35s ease;
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .step {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            color: var(--muted);
+            background: #fff;
+            min-height: 74px;
+        }
+
+        .step.active {
+            color: var(--brand);
+            border-color: #b9c6ff;
+            background: #f3f5ff;
+        }
+
+        .step.done {
+            color: var(--success);
+            border-color: #b9e5d1;
+            background: #f3fff9;
+        }
+
+        .step strong {
+            display: block;
+            font-size: 0.84rem;
+            margin-bottom: 4px;
+        }
+
+        .step span {
+            font-size: 0.78rem;
+        }
+
+        .preview-card {
+            border-radius: 28px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow);
+            padding: 18px;
+        }
+
+        .viewer-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 6px 16px;
+        }
+
+        .viewer-head h2 {
+            margin: 0;
+            font-size: 1.05rem;
+        }
+
+        .viewer-head span {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .viewer-shell {
+            display: grid;
+            grid-template-columns: 128px minmax(0, 1fr);
+            gap: 16px;
+        }
+
+        .thumbs {
+            display: grid;
+            gap: 10px;
+            max-height: 590px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .thumb {
+            border: 2px solid transparent;
+            border-radius: 12px;
+            padding: 4px;
+            background: #f4f6fb;
+        }
+
+        .thumb.active {
+            border-color: var(--brand);
+            background: #eef2ff;
+        }
+
+        .thumb svg {
+            display: block;
+            width: 100%;
+            border-radius: 8px;
+            background: white;
+        }
+
+        .slide-stage {
+            border-radius: 18px;
+            background: #edf1f8;
+            border: 1px solid var(--line);
+            min-height: 560px;
+            display: grid;
+            place-items: center;
+            padding: 18px;
+        }
+
+        .slide-stage svg {
+            width: 100%;
+            max-width: 920px;
+            border-radius: 14px;
+            box-shadow: 0 18px 55px rgba(31, 45, 86, 0.18);
+        }
+
+        .panel {
+            background: #eef1f7;
+            border-left: 1px solid var(--line);
+            padding: 22px;
+            overflow: auto;
+        }
+
+        .creator h2 {
+            margin: 0 0 22px;
+            font-size: 1.55rem;
+            text-align: center;
+        }
+
+        .composer {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            overflow: hidden;
+            box-shadow: 0 20px 55px rgba(35, 45, 78, 0.08);
+        }
+
+        .composer-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 12px 12px 0;
+        }
+
+        .composer-tab {
+            border: 0;
+            border-radius: 999px;
+            background: transparent;
+            color: var(--muted);
+            padding: 8px 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .composer-tab.active {
+            background: var(--panel-soft);
+            color: var(--ink);
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 132px;
+            resize: vertical;
+            border: 0;
+            border-top: 1px solid var(--line);
+            outline: none;
+            padding: 18px;
+            color: var(--ink);
+            background: #fff;
+        }
+
+        .composer-bottom {
+            border-top: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 12px;
+            align-items: center;
+        }
+
+        .round-btn,
+        .send-btn {
+            border: 0;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: grid;
+            place-items: center;
+        }
+
+        .round-btn {
+            background: #f1f4f9;
+            color: var(--ink);
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, var(--brand), var(--brand-2));
+            color: #fff;
+            font-weight: 900;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .tool-chip,
+        .select-chip {
+            min-height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: #f7f9fc;
+            color: var(--muted);
+            padding: 6px 10px;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .select-chip {
+            outline: none;
+        }
+
+        .hidden-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .file-list {
+            display: grid;
+            gap: 8px;
+            margin: 12px 0 0;
+        }
+
+        .file-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 9px 10px;
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .file-row strong {
+            color: var(--ink);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-row button {
+            border: 0;
+            background: transparent;
+            color: var(--quiet);
+        }
+
+        .quick-prompts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 28px;
+        }
+
+        .quick-prompts button {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: #fff;
+            color: var(--muted);
+            padding: 10px 14px;
+            min-width: 96px;
+            box-shadow: 0 8px 20px rgba(35, 45, 78, 0.06);
+        }
+
+        .settings {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field label {
+            color: var(--muted);
+            font-size: 0.78rem;
+            font-weight: 800;
+        }
+
+        .field input,
+        .field select {
+            height: 38px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+            padding: 0 10px;
+            color: var(--ink);
+            outline: none;
+        }
+
+        .result-actions {
+            display: grid;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .task-meta {
+            margin: 8px 0 0;
+            color: var(--quiet);
+            font-size: 0.76rem;
+            text-align: center;
+        }
+
+        .task-meta code {
+            color: var(--muted);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 0.75rem;
+        }
+
+        .primary-btn,
+        .secondary-btn {
+            border: 0;
+            border-radius: 15px;
+            min-height: 44px;
+            font-weight: 800;
+        }
+
+        .primary-btn {
+            background: linear-gradient(135deg, var(--brand), var(--brand-2));
+            color: #fff;
+            box-shadow: 0 12px 30px rgba(49, 92, 255, 0.24);
+        }
+
+        .secondary-btn {
+            background: #fff;
+            border: 1px solid var(--line);
+            color: var(--ink);
+        }
+
+        .primary-btn:disabled,
+        .secondary-btn:disabled {
+            cursor: not-allowed;
+            color: #a7adba;
+            background: #e8ecf3;
+            border: 1px solid #dde3ec;
+            box-shadow: none;
+        }
+
+        .dialogue-log {
+            display: grid;
+            gap: 10px;
+            min-height: 82px;
+            max-height: 260px;
+            overflow: auto;
+            padding: 14px 16px;
+            border-top: 1px solid var(--line);
+            background: linear-gradient(180deg, #fbfcff, #fff);
+        }
+
+        .message {
+            border-radius: 16px;
+            padding: 11px 12px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.76);
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .message.user {
+            justify-self: end;
+            max-width: 88%;
+            background: #eef2ff;
+            border-color: #cfd8ff;
+            color: #24316b;
+        }
+
+        .message.assistant {
+            justify-self: start;
+            max-width: 94%;
+        }
+
+        .message strong {
+            display: block;
+            color: var(--ink);
+            margin-bottom: 3px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 7px;
+            background: var(--brand);
+            box-shadow: 0 0 0 4px rgba(49, 92, 255, 0.12);
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(17, 24, 39, 0.38);
+            display: none;
+            place-items: center;
+            z-index: 20;
+            padding: 20px;
+        }
+
+        .modal-backdrop.show {
+            display: grid;
+        }
+
+        .modal {
+            width: min(440px, 100%);
+            border-radius: 24px;
+            background: #fff;
+            box-shadow: 0 30px 90px rgba(18, 26, 48, 0.24);
+            padding: 22px;
+        }
+
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .modal h2 {
+            margin: 0;
+            font-size: 1.25rem;
+        }
+
+        .close-btn {
+            border: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--panel-soft);
+        }
+
+        .auth-form {
+            display: grid;
+            gap: 12px;
+        }
+
+        .auth-form input {
+            height: 44px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 0 12px;
+            outline: none;
+        }
+
+        .plan-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .plan {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 14px;
+        }
+
+        .plan.featured {
+            border-color: #aebcff;
+            background: #f5f7ff;
+        }
+
+        .plan h3 {
+            margin: 0 0 4px;
+        }
+
+        .plan p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        @media (max-width: 1180px) {
+            .app {
+                grid-template-columns: 58px minmax(0, 1fr);
+            }
+
+            .panel {
+                grid-column: 1 / -1;
+                border-left: 0;
+                border-top: 1px solid var(--line);
+            }
+
+        }
+
+        @media (max-width: 760px) {
+            .app {
+                grid-template-columns: 1fr;
+            }
+
+            .rail {
+                display: none;
+            }
+
+            .topbar {
+                height: auto;
+                padding: 16px;
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .account-strip {
+                justify-content: flex-start;
+            }
+
+            .stage {
+                padding: 14px;
+            }
+
+            .viewer-shell,
+            .settings,
+            .steps {
+                grid-template-columns: 1fr;
+            }
+
+            .thumbs {
+                grid-template-columns: repeat(4, 1fr);
+                display: grid;
+                max-height: none;
+                overflow: visible;
+            }
+
+            .slide-stage {
+                min-height: 280px;
+            }
+        }
+
+        .side-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .side-item {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 13px;
+            background: #fbfcff;
+        }
+
+        .side-item strong {
+            display: block;
+            color: var(--ink);
+            margin-bottom: 4px;
+        }
+
+        .side-item span {
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <aside class="rail">
+            <div class="logo">PM</div>
+            <button class="rail-btn active" id="newWorkspaceBtn" title="新建工作台" aria-label="新建工作台">+</button>
+            <button class="rail-btn" id="historyBtn" title="历史记录" aria-label="历史记录">↺</button>
+            <button class="rail-btn" id="templatesBtn" title="保存的模板" aria-label="保存的模板">▣</button>
+            <div class="rail-spacer"></div>
+            <div class="avatar" title="User">L</div>
+        </aside>
+
+        <main class="canvas">
+            <header class="topbar">
+                <div class="title-block">
+                    <h1 data-i18n="title">Best PPT</h1>
+                    <p data-i18n="subtitle">Upload material, generate a PPT, preview the result.</p>
+                </div>
+                <div class="account-strip">
+                    <button class="pill" type="button" id="membershipBtn"><strong id="planName">Free</strong><span id="quotaText" data-i18n="quota">2 left today</span></button>
+                </div>
+            </header>
+
+            <section class="stage">
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-card">
+                        <div>
+                            <div class="file-tile"><span>P</span></div>
+                            <h2 data-i18n="emptyTitle">No PPT generated yet</h2>
+                            <p data-i18n="emptyText">Upload materials or enter a prompt. The generated deck preview will appear here.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="running-state" id="runningState" hidden>
+                    <div class="running-card">
+                        <h2 data-i18n="runningTitle">Generating your PPT</h2>
+                        <p id="runningCopy" data-i18n="runningText">Drafting structure and preparing slides.</p>
+                        <div class="progress-rail"><div class="progress-fill" id="progressFill"></div></div>
+                        <div class="steps" id="steps">
+                            <div class="step active"><strong data-i18n="stepQueued">Queued</strong><span data-i18n="stepQueuedText">Task accepted</span></div>
+                            <div class="step"><strong data-i18n="stepOutline">Outline</strong><span data-i18n="stepOutlineText">Deck plan</span></div>
+                            <div class="step"><strong data-i18n="stepSlides">Slides</strong><span data-i18n="stepSlidesText">Visual draft</span></div>
+                            <div class="step"><strong data-i18n="stepDone">Preview</strong><span data-i18n="stepDoneText">Ready to view</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="preview-state" id="previewState" hidden>
+                    <div class="preview-card">
+                        <div class="viewer-head">
+                            <div>
+                                <h2 id="deckTitle">Q3 Business Review</h2>
+                                <span id="slideCounter">1 / 6</span>
+                            </div>
+                            <button class="secondary-btn" type="button" id="fullscreenBtn" data-i18n="fullscreen">Fullscreen preview</button>
+                        </div>
+                        <div class="viewer-shell">
+                            <div class="thumbs" id="thumbs"></div>
+                            <div class="slide-stage" id="slideStage"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <aside class="panel">
+            <section class="creator">
+                <h2 data-i18n="question">What PPT do you want to create?</h2>
+                <div class="composer">
+                    <div class="composer-tabs">
+                        <button class="composer-tab active" type="button" data-mode="quick" data-i18n="quickCreate">Quick create</button>
+                        <button class="composer-tab" type="button" data-mode="file" data-i18n="fileToPpt">File to PPT</button>
+                        <button class="composer-tab" type="button" data-mode="outline" data-i18n="outlineToPpt">Outline to PPT</button>
+                    </div>
+                    <div class="dialogue-log" id="dialogueLog">
+                    </div>
+                    <textarea id="promptInput" data-i18n-placeholder="promptPlaceholder" placeholder="Enter your requirements..."></textarea>
+                    <div class="composer-bottom">
+                        <div class="toolbar">
+                            <label class="round-btn" for="fileInput" title="Upload">+</label>
+                            <input class="hidden-input" id="fileInput" type="file" multiple>
+                            <span class="tool-chip" data-i18n="smartLayout">Smart layout</span>
+                        </div>
+                        <button class="send-btn" type="button" id="generateBtn">↑</button>
+                    </div>
+                </div>
+
+                <div class="file-list" id="fileList"></div>
+
+                <div class="settings">
+                    <div class="field">
+                        <label data-i18n="pages">Pages</label>
+                        <input id="pageCount" type="number" min="1" max="30" value="8">
+                    </div>
+                    <div class="field">
+                        <label data-i18n="scene">Scene</label>
+                        <select id="sceneType">
+                            <option value="business" data-i18n="sceneBusiness">Business report</option>
+                            <option value="defense" data-i18n="sceneDefense">Thesis defense</option>
+                            <option value="class" data-i18n="sceneClass">Course deck</option>
+                            <option value="product" data-i18n="sceneProduct">Product intro</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label data-i18n="tone">Tone</label>
+                        <select id="toneType">
+                            <option value="professional" data-i18n="toneProfessional">Professional</option>
+                            <option value="concise" data-i18n="toneConcise">Concise</option>
+                            <option value="academic" data-i18n="toneAcademic">Academic</option>
+                            <option value="persuasive" data-i18n="tonePersuasive">Persuasive</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="quick-prompts" id="quickPrompts"></div>
+
+                <div class="result-actions" id="resultActions">
+                    <button class="primary-btn" type="button" id="downloadBtn" disabled data-i18n="download">Download PPTX</button>
+                    <button class="secondary-btn" type="button" id="regenerateBtn" disabled data-i18n="regenerate">Regenerate</button>
+                </div>
+                <p class="task-meta" id="taskMeta" hidden><span data-i18n="taskIdLabel">任务 ID</span>: <code id="taskIdText">mock_task_20260603</code></p>
+            </section>
+        </aside>
+    </div>
+
+    <div class="modal-backdrop" id="membershipModal">
+        <div class="modal">
+            <div class="modal-head">
+                <h2 data-i18n="membershipTitle">Membership</h2>
+                <button class="close-btn" type="button" data-close="membershipModal">×</button>
+            </div>
+            <div class="plan-grid">
+                <div class="plan"><h3>Free</h3><p data-i18n="freePlan">3 generations/day, up to 8 pages.</p></div>
+                <div class="plan featured"><h3>Pro</h3><p data-i18n="proPlan">100 generations/month, up to 30 pages, no watermark.</p></div>
+                <div class="plan"><h3>Team</h3><p data-i18n="teamPlan">Shared quota, brand templates, members.</p></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="sideModal">
+        <div class="modal">
+            <div class="modal-head">
+                <h2 id="sideModalTitle">历史记录</h2>
+                <button class="close-btn" type="button" data-close="sideModal">×</button>
+            </div>
+            <div class="side-list" id="sideModalList"></div>
+        </div>
+    </div>
+
+    <script>
+        const copy = {
+            'zh-CN': {
+                title: 'Best PPT',
+                subtitle: '上传资料，生成 PPT，并预览结果。',
+                quota: '今日剩余 2 次',
+                emptyTitle: '还没有生成 PPT',
+                emptyText: '上传资料或输入需求后，生成结果会显示在这里。',
+                runningTitle: '正在生成你的 PPT',
+                runningText: '正在梳理结构并准备页面。',
+                stepQueued: '排队',
+                stepQueuedText: '任务已接收',
+                stepOutline: '大纲',
+                stepOutlineText: '规划内容',
+                stepSlides: '页面',
+                stepSlidesText: '生成视觉稿',
+                stepDone: '预览',
+                stepDoneText: '可以查看',
+                fullscreen: '全屏预览',
+                question: '你好！想生成哪些 PPT？',
+                quickCreate: '快速创作',
+                fileToPpt: '文件转PPT',
+                outlineToPpt: '大纲转PPT',
+                promptPlaceholder: '输入你的需求，比如：基于 Q3 业务复盘，生成 8 页中文投资人汇报 PPT',
+                smartLayout: '智能排版',
+                pages: '页数',
+                scene: '场景',
+                sceneBusiness: '商务汇报',
+                sceneDefense: '论文答辩',
+                sceneClass: '教学课件',
+                sceneProduct: '产品说明',
+                tone: '语气',
+                toneProfessional: '专业',
+                toneConcise: '简洁',
+                toneAcademic: '学术',
+                tonePersuasive: '说服型',
+                download: '下载 PPTX',
+                regenerate: '重新生成',
+                taskIdLabel: '任务 ID',
+                registerPrompt: '没有账号？注册',
+                membershipTitle: '会员体系',
+                freePlan: '每天 3 次生成，最多 8 页。',
+                proPlan: '每月 100 次生成，最多 30 页，无水印。',
+                teamPlan: '共享额度、品牌模板、成员管理。',
+                promptNeeded: '先告诉我你想生成什么 PPT，或者点击一个快捷场景。',
+                clarifyTitle: '需要再确认一下',
+                clarifyText: '你想给谁看这份 PPT？希望偏正式汇报、教学说明，还是产品介绍？补充一句后我再开始生成。',
+                userIntent: '生成需求',
+                statusQueued: '任务已创建',
+                statusQueuedText: '已收到你的需求，正在整理上传材料和生成参数。',
+                statusOutline: '正在生成大纲',
+                statusOutlineText: '根据后端流程，先规划页面结构、标题和每页重点。',
+                statusSlides: '正在生成页面',
+                statusSlidesText: '正在生成第 {page} / {total} 页，同时准备预览资源。',
+                statusValidate: '正在校验结果',
+                statusValidateText: '检查输出文件、生成报告和预览清单。',
+                statusCompleted: '生成完成',
+                statusCompletedText: 'PPT 预览已准备好，可以查看缩略图并下载 PPTX。'
+            },
+            en: {
+                title: 'Best PPT',
+                subtitle: 'Upload material, generate a PPT, preview the result.',
+                quota: '2 left today',
+                emptyTitle: 'No PPT generated yet',
+                emptyText: 'Upload materials or enter a prompt. The generated deck preview will appear here.',
+                runningTitle: 'Generating your PPT',
+                runningText: 'Drafting structure and preparing slides.',
+                stepQueued: 'Queued',
+                stepQueuedText: 'Task accepted',
+                stepOutline: 'Outline',
+                stepOutlineText: 'Deck plan',
+                stepSlides: 'Slides',
+                stepSlidesText: 'Visual draft',
+                stepDone: 'Preview',
+                stepDoneText: 'Ready to view',
+                fullscreen: 'Fullscreen preview',
+                question: 'What PPT do you want to create?',
+                quickCreate: 'Quick create',
+                fileToPpt: 'File to PPT',
+                outlineToPpt: 'Outline to PPT',
+                promptPlaceholder: 'Enter your requirements, e.g. create an 8-page investor report from the Q3 review',
+                smartLayout: 'Smart layout',
+                pages: 'Pages',
+                scene: 'Scene',
+                sceneBusiness: 'Business report',
+                sceneDefense: 'Thesis defense',
+                sceneClass: 'Course deck',
+                sceneProduct: 'Product intro',
+                tone: 'Tone',
+                toneProfessional: 'Professional',
+                toneConcise: 'Concise',
+                toneAcademic: 'Academic',
+                tonePersuasive: 'Persuasive',
+                download: 'Download PPTX',
+                regenerate: 'Regenerate',
+                taskIdLabel: 'Task ID',
+                registerPrompt: 'No account? Register',
+                membershipTitle: 'Membership',
+                freePlan: '3 generations/day, up to 8 pages.',
+                proPlan: '100 generations/month, up to 30 pages, no watermark.',
+                teamPlan: 'Shared quota, brand templates, members.',
+                promptNeeded: 'Tell me what PPT you want to generate, or choose a quick scene first.',
+                clarifyTitle: 'A little more detail needed',
+                clarifyText: 'Who is this PPT for? Should it feel like a formal report, teaching material, or product intro? Add one sentence and I will start generating.',
+                userIntent: 'Generation request',
+                statusQueued: 'Task created',
+                statusQueuedText: 'Request received. Preparing source materials and generation settings.',
+                statusOutline: 'Building outline',
+                statusOutlineText: 'Following the backend flow: planning slide structure, titles, and key points.',
+                statusSlides: 'Generating slides',
+                statusSlidesText: 'Generating slide {page} / {total} and preparing preview assets.',
+                statusValidate: 'Validating result',
+                statusValidateText: 'Checking output file, generation report, and preview manifest.',
+                statusCompleted: 'Completed',
+                statusCompletedText: 'The PPT preview is ready. You can review thumbnails and download the PPTX.'
+            }
+        };
+
+        const promptSets = {
+            'zh-CN': ['论文答辩', '期末作业', '学术会议', '总结汇报', '公开演讲', '医疗领域', '年终述职', '市场调研', '产品说明'],
+            en: ['Thesis defense', 'Coursework', 'Academic talk', 'Business summary', 'Public speech', 'Healthcare', 'Annual review', 'Market research', 'Product intro']
+        };
+
+        const deckSlides = [
+            { title: 'Executive Summary', accent: '#315cff', bg: '#f7f9ff', body: ['Q3 revenue grew 15% YoY', 'Renewal rate improved to 91%', 'Southeast Asia pipeline expanding'] },
+            { title: 'Growth Drivers', accent: '#23a66f', bg: '#f4fff9', body: ['Overseas market +28%', 'Enterprise services +22%', 'AI product line launch'] },
+            { title: 'Risks', accent: '#d39b20', bg: '#fffaf0', body: ['Supply chain delay', 'Talent retention pressure', 'Delivery cycle variance'] },
+            { title: 'Next Quarter', accent: '#7b8cff', bg: '#f7f5ff', body: ['Diversify partners', 'Grow regional pipeline', 'Package the investor narrative'] }
+        ];
+
+        let lang = 'zh-CN';
+        let files = [];
+        let activeSlide = 0;
+        let progress = 0;
+        let timer = null;
+        let statusIndex = 0;
+
+        const backendStatusFlow = [
+            { progress: 8, step: 0, title: 'statusQueued', text: 'statusQueuedText' },
+            { progress: 32, step: 1, title: 'statusOutline', text: 'statusOutlineText' },
+            { progress: 50, step: 2, title: 'statusSlides', text: 'statusSlidesText', page: 2 },
+            { progress: 68, step: 2, title: 'statusSlides', text: 'statusSlidesText', page: 5 },
+            { progress: 86, step: 3, title: 'statusValidate', text: 'statusValidateText' },
+            { progress: 100, step: 3, title: 'statusCompleted', text: 'statusCompletedText' },
+        ];
+
+        const el = id => document.getElementById(id);
+
+        function getInitialLang() {
+            const queryLang = new URLSearchParams(window.location.search).get('lang');
+            const storedLang = localStorage.getItem('ppt-master-language');
+            return [queryLang, storedLang].includes('en') ? 'en' : 'zh-CN';
+        }
+
+        function applyLang(nextLang) {
+            lang = nextLang;
+            document.documentElement.lang = lang;
+            document.querySelectorAll('[data-i18n]').forEach(node => node.textContent = copy[lang][node.dataset.i18n]);
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(node => node.placeholder = copy[lang][node.dataset.i18nPlaceholder]);
+            el('quotaText').textContent = copy[lang].quota;
+            renderPrompts();
+        }
+
+        function renderPrompts() {
+            el('quickPrompts').innerHTML = promptSets[lang].map(text => `<button type="button">${escapeHtml(text)}</button>`).join('');
+        }
+
+        function renderFiles() {
+            el('fileList').innerHTML = files.map((file, index) => `
+                <div class="file-row">
+                    <strong>${escapeHtml(file.name)}</strong>
+                    <span>${formatBytes(file.size)}</span>
+                    <button type="button" data-remove-file="${index}">×</button>
+                </div>
+            `).join('');
+        }
+
+        function startGenerate() {
+            const prompt = el('promptInput').value.trim();
+            if (!prompt && !files.length) {
+                appendMessage('assistant', copy[lang].clarifyTitle, copy[lang].promptNeeded);
+                return;
+            }
+            if (prompt && prompt.length < 8 && !files.length) {
+                appendMessage('user', copy[lang].userIntent, prompt);
+                appendMessage('assistant', copy[lang].clarifyTitle, copy[lang].clarifyText);
+                return;
+            }
+            clearInterval(timer);
+            progress = 0;
+            statusIndex = 0;
+            el('emptyState').hidden = true;
+            el('previewState').hidden = true;
+            el('runningState').hidden = false;
+            setResultButtons(false);
+            resetDialogue();
+            appendMessage('user', copy[lang].userIntent, prompt || files.map(file => file.name).join(', '));
+            updateProgress();
+            emitNextStatus();
+            timer = setInterval(() => {
+                statusIndex += 1;
+                emitNextStatus();
+                if (statusIndex >= backendStatusFlow.length - 1) {
+                    clearInterval(timer);
+                    showPreview();
+                }
+            }, 850);
+        }
+
+        function emitNextStatus() {
+            const item = backendStatusFlow[Math.min(statusIndex, backendStatusFlow.length - 1)];
+            progress = item.progress;
+            updateProgress(item.step);
+            const pageTotal = Number(el('pageCount').value || 8);
+            const text = interpolate(copy[lang][item.text], { page: Math.min(item.page || pageTotal, pageTotal), total: pageTotal });
+            appendMessage('assistant', copy[lang][item.title], text);
+        }
+
+        function interpolate(template, values) {
+            return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, value), template);
+        }
+
+        function updateProgress(activeStep = 0) {
+            const value = Math.min(progress, 100);
+            el('progressFill').style.width = `${value}%`;
+            document.querySelectorAll('.step').forEach((step, index) => {
+                step.classList.toggle('done', index < activeStep || value >= 100);
+                step.classList.toggle('active', index === activeStep && value < 100);
+            });
+        }
+
+        function showPreview() {
+            el('runningState').hidden = true;
+            el('previewState').hidden = false;
+            setResultButtons(true);
+            activeSlide = 0;
+            renderViewer();
+        }
+
+        function setResultButtons(enabled) {
+            el('downloadBtn').disabled = !enabled;
+            el('regenerateBtn').disabled = !enabled;
+            el('taskMeta').hidden = !enabled;
+        }
+
+        function setActiveRail(buttonId) {
+            document.querySelectorAll('.rail-btn').forEach(button => button.classList.remove('active'));
+            el(buttonId).classList.add('active');
+        }
+
+        function resetWorkspace() {
+            clearInterval(timer);
+            progress = 0;
+            statusIndex = 0;
+            activeSlide = 0;
+            files = [];
+            el('promptInput').value = '';
+            el('emptyState').hidden = false;
+            el('runningState').hidden = true;
+            el('previewState').hidden = true;
+            el('progressFill').style.width = '0%';
+            resetDialogue();
+            renderFiles();
+            setResultButtons(false);
+            setActiveRail('newWorkspaceBtn');
+        }
+
+        function showSideModal(type) {
+            const data = type === 'history'
+                ? {
+                    title: '历史记录',
+                    active: 'historyBtn',
+                    items: [
+                        ['Q3 投资人汇报', '今天 14:20 · 8 页 · 已生成'],
+                        ['产品发布说明', '昨天 18:05 · 10 页 · 已生成'],
+                        ['市场调研总结', '2026-06-01 · 6 页 · 已生成'],
+                    ],
+                }
+                : {
+                    title: '保存的模板',
+                    active: 'templatesBtn',
+                    items: [
+                        ['深色商务汇报', '适合投资人、管理层、季度复盘'],
+                        ['学术答辩模板', '适合论文答辩、课题汇报'],
+                        ['产品说明模板', '适合功能介绍、方案演示'],
+                    ],
+                };
+            setActiveRail(data.active);
+            el('sideModalTitle').textContent = data.title;
+            el('sideModalList').innerHTML = data.items.map(([title, desc]) => `
+                <div class="side-item"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div>
+            `).join('');
+            showModal('sideModal');
+        }
+
+        function resetDialogue() {
+            el('dialogueLog').innerHTML = '';
+        }
+
+        function appendMessage(kind, title, text) {
+            const node = document.createElement('div');
+            node.className = `message ${kind}`;
+            node.innerHTML = `<strong>${kind === 'assistant' ? '<span class="status-dot"></span>' : ''}${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span>`;
+            el('dialogueLog').appendChild(node);
+            el('dialogueLog').scrollTop = el('dialogueLog').scrollHeight;
+        }
+
+        function renderViewer() {
+            el('slideCounter').textContent = `${activeSlide + 1} / ${deckSlides.length}`;
+            el('thumbs').innerHTML = deckSlides.map((slide, index) => `
+                <button class="thumb ${index === activeSlide ? 'active' : ''}" type="button" data-slide="${index}">
+                    ${slideSvg(slide, true)}
+                </button>
+            `).join('');
+            el('slideStage').innerHTML = slideSvg(deckSlides[activeSlide], false);
+        }
+
+        function slideSvg(slide, small) {
+            const fontSize = small ? 16 : 34;
+            const bodySize = small ? 8 : 18;
+            const body = slide.body.map((item, index) => `<text x="${small ? 18 : 72}" y="${small ? 58 + index * 14 : 190 + index * 52}" font-size="${bodySize}" fill="#334155">${escapeHtml(item)}</text>`).join('');
+            return `
+                <svg viewBox="0 0 960 540" role="img" aria-label="${escapeHtml(slide.title)}" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="960" height="540" fill="${slide.bg}"/>
+                    <rect x="0" y="0" width="18" height="540" fill="${slide.accent}"/>
+                    <circle cx="820" cy="92" r="68" fill="${slide.accent}" opacity="0.16"/>
+                    <rect x="72" y="94" width="120" height="8" rx="4" fill="${slide.accent}"/>
+                    <text x="${small ? 18 : 72}" y="${small ? 36 : 144}" font-size="${fontSize}" font-family="Avenir Next, sans-serif" font-weight="800" fill="#111827">${escapeHtml(slide.title)}</text>
+                    ${body}
+                    <text x="${small ? 18 : 72}" y="${small ? 118 : 480}" font-size="${small ? 7 : 16}" fill="#64748b">Best PPT generated preview</text>
+                </svg>
+            `;
+        }
+
+        function showModal(id) { el(id).classList.add('show'); }
+        function hideModal(id) { el(id).classList.remove('show'); }
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+            return `${(bytes / Math.pow(1024, index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+        }
+
+        document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => hideModal(button.dataset.close)));
+        document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.addEventListener('click', event => { if (event.target === backdrop) hideModal(backdrop.id); }));
+        document.querySelectorAll('.composer-tab').forEach(button => button.addEventListener('click', () => {
+            document.querySelectorAll('.composer-tab').forEach(item => item.classList.remove('active'));
+            button.classList.add('active');
+        }));
+        el('newWorkspaceBtn').addEventListener('click', resetWorkspace);
+        el('historyBtn').addEventListener('click', () => showSideModal('history'));
+        el('templatesBtn').addEventListener('click', () => showSideModal('templates'));
+        el('membershipBtn').addEventListener('click', () => showModal('membershipModal'));
+        el('generateBtn').addEventListener('click', startGenerate);
+        el('regenerateBtn').addEventListener('click', startGenerate);
+        el('downloadBtn').addEventListener('click', () => alert(lang === 'zh-CN' ? '示例流程：这里会下载生成后的 PPTX。' : 'Demo flow: this would download the generated PPTX.'));
+        el('fullscreenBtn').addEventListener('click', () => el('slideStage').requestFullscreen?.());
+        el('fileInput').addEventListener('change', event => {
+            files = [...files, ...Array.from(event.target.files || [])];
+            renderFiles();
+        });
+        el('fileList').addEventListener('click', event => {
+            const button = event.target.closest('[data-remove-file]');
+            if (!button) return;
+            files.splice(Number(button.dataset.removeFile), 1);
+            renderFiles();
+        });
+        el('quickPrompts').addEventListener('click', event => {
+            const button = event.target.closest('button');
+            if (!button) return;
+            el('promptInput').value = lang === 'zh-CN'
+                ? `请帮我生成一份关于「${button.textContent}」的 8 页 PPT，内容要清晰、适合演示。`
+                : `Create an 8-page deck for "${button.textContent}" with a clear presentation narrative.`;
+        });
+        el('thumbs').addEventListener('click', event => {
+            const button = event.target.closest('[data-slide]');
+            if (!button) return;
+            activeSlide = Number(button.dataset.slide);
+            renderViewer();
+        });
+
+        applyLang(getInitialLang());
+        renderFiles();
+    </script>
+</body>
+
+</html>

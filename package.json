@@ -1,0 +1,17 @@
+{
+  "scripts": {
+    "check": "npm run check:html && npm run check:py && npm run test:py",
+    "check:html": "python3 -c \"from html.parser import HTMLParser; [HTMLParser().feed(open(p, encoding='utf-8').read()) for p in ['index.html', 'cloud-generator.html', 'viewer.html']]; print('html parse ok')\"",
+    "check:py": "PYTHONPATH=skills/ppt-master/scripts python3 -m py_compile $(find skills/ppt-master/scripts -name '*.py' -not -path '*/__pycache__/*')",
+    "readiness": "PYTHONPATH=skills/ppt-master/scripts python3 scripts/check-cloud-generator-readiness.py",
+    "test:py": "PYTHONPATH=skills/ppt-master/scripts python3 -m unittest discover -s skills/ppt-master/scripts/cloud_generator/tests -p 'test_*.py' -v",
+    "smoke:browser": "node scripts/cloud-generator-browser-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.0"
+  },
+  "dependencies": {
+    "@cloudbase/js-sdk": "^3.3.13",
+    "@supabase/supabase-js": "^2.108.0"
+  }
+}

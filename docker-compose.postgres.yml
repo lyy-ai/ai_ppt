@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ppt_master}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ppt_master_postgres_data:/var/lib/postgresql/data
+      - ./skills/ppt-master/scripts/cloud_generator/postgres_schema.sql:/docker-entrypoint-initdb.d/001_ppt_master.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  clamav:
+    image: clamav/clamav:1.4.3
+    container_name: ppt-master-clamav
+    restart: unless-stopped
+    volumes:
+      - /data/liyangyang/ppt_project/jobs:/data/liyangyang/ppt_project/jobs:ro
+      - ppt_master_clamav_defs:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck || true"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  ppt_master_postgres_data:
+  ppt_master_clamav_defs:

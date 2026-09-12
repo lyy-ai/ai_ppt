@@ -1,0 +1,18 @@
+[Unit]
+Description=PPT Master Postgres generation worker
+After=network-online.target docker.service ppt-master-postgres.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/data/liyangyang/ppt_project/ppt-master
+EnvironmentFile=/data/liyangyang/ppt_project/.env.server
+Environment=PYTHONPATH=/data/liyangyang/ppt_project/ppt-master/skills/ppt-master/scripts
+ExecStart=/data/liyangyang/ppt_project/.venv/bin/python -m cloud_generator.postgres_worker --jobs-dir /data/liyangyang/ppt_project/jobs
+Restart=always
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4759 @@
+#!/usr/bin/env python3
+"""Minimal local HTTP API for PPT Master generation tasks.
+
+By default it keeps the dependency-free JSON job store. With --store postgres,
+it writes tasks into the Postgres queue and expects postgres_worker to consume
+them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import contextlib
+import hashlib
+import hmac
+import os
+import json
+import re
+import secrets
+import shutil
+import smtplib
+import threading
+import time
+import uuid
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
+from xml.etree import ElementTree as ET
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+from .job_runner import cancel_job, create_job, load_job, reset_job_for_retry, run_job
+from .core_adapter import route_capabilities
+from .llm_client import chat_completion
+from .postgres_queue import cancel_task, enqueue_task, get_task, list_events, list_tasks, retry_task
+from .route_sessions import (
+    RouteSessionError,
+    confirm_route_session,
+    load_route_session,
+    prepare_route_session,
+    publish_template_session,
+    update_route_session,
+)
+from .security import redact_secrets
+from .source_materials import materialize_source
+from .storage import publish_artifact, storage_mode
+
+
+DEFAULT_JOBS_DIR = Path("/tmp/ppt-master-api-jobs")
+SKILL_DIR = Path(__file__).resolve().parent.parent.parent
+TEMPLATES_DIR = SKILL_DIR / "templates"
+_JWKS_CACHE: dict[str, Any] = {"url": "", "fetched_at": 0.0, "keys": []}
+
+
+def _limit_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+class ApiError(Exception):
+    def __init__(self, status: HTTPStatus, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+def _json_response(handler: BaseHTTPRequestHandler, status: HTTPStatus, payload: dict[str, Any]) -> None:
+    body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    handler.send_response(status.value)
+    _send_cors_headers(handler)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _bytes_response(handler: BaseHTTPRequestHandler, status: HTTPStatus, body: bytes, content_type: str) -> None:
+    handler.send_response(status.value)
+    _send_cors_headers(handler)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _text_response(handler: BaseHTTPRequestHandler, status: HTTPStatus, body: str, content_type: str = "text/plain; charset=utf-8") -> None:
+    data = body.encode("utf-8")
+    handler.send_response(status.value)
+    _send_cors_headers(handler)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _download_bytes_response(handler: BaseHTTPRequestHandler, path: Path) -> None:
+    body = path.read_bytes()
+    handler.send_response(HTTPStatus.OK.value)
+    _send_cors_headers(handler)
+    handler.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _redirect_response(handler: BaseHTTPRequestHandler, location: str) -> None:
+    handler.send_response(HTTPStatus.FOUND.value)
+    _send_cors_headers(handler)
+    handler.send_header("Location", location)
+    handler.send_header("Content-Length", "0")
+    handler.end_headers()
+
+
+def _send_cors_headers(handler: BaseHTTPRequestHandler) -> None:
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+    handler.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-PPT-Master-Token, X-PPT-Master-Session, X-PPT-Master-Auth-Provider")
+
+
+def _request_token(handler: BaseHTTPRequestHandler) -> str:
+    query_token = ""
+    try:
+        from urllib.parse import parse_qs
+        query_token = (parse_qs(urlparse(handler.path).query).get("token") or [""])[0]
+    except Exception:
+        query_token = ""
+    return (
+        query_token
+        or
+        handler.headers.get("X-PPT-Master-Token")
+        or handler.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        or ""
+    )
+
+
+def _require_access(handler: BaseHTTPRequestHandler) -> None:
+    expected = str(getattr(handler, "access_token", "") or "").strip()
+    if not expected:
+        return
+    if not secrets.compare_digest(_request_token(handler), expected):
+        user, _store = _current_user(handler)
+        if not user:
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+
+
+def _session_token(handler: BaseHTTPRequestHandler) -> str:
+    query_session = ""
+    try:
+        from urllib.parse import parse_qs
+        query_session = (parse_qs(urlparse(handler.path).query).get("session") or [""])[0]
+    except Exception:
+        query_session = ""
+    return query_session or handler.headers.get("X-PPT-Master-Session", "").strip()
+
+
+def _bearer_token(handler: BaseHTTPRequestHandler) -> str:
+    value = handler.headers.get("Authorization", "").strip()
+    if not value.lower().startswith("bearer "):
+        return ""
+    return value.split(" ", 1)[1].strip()
+
+
+_AUTH_STORE_LOCK = threading.RLock()
+
+
+def _auth_store_path(jobs_dir: Path) -> Path:
+    return jobs_dir / "_auth" / "users.json"
+
+
+def _read_auth_store(jobs_dir: Path) -> dict[str, Any]:
+    path = _auth_store_path(jobs_dir)
+    if not path.exists():
+        return {"users": {}, "sessions": {}, "sms_challenges": {}, "teams": {}, "checkouts": {}, "billing_events": [], "email_outbox": []}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        # An existing-but-unparseable store means corruption, not "no accounts yet".
+        # Falling back to {} here would let the next _write_auth_store persist an
+        # empty store and permanently destroy every user, session and team.
+        raise ApiError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            f"Auth store at {path} is corrupt and was not overwritten: {exc}",
+        ) from exc
+    if not isinstance(data, dict):
+        raise ApiError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            f"Auth store at {path} is not a JSON object and was not overwritten",
+        )
+    return {
+        "users": data.get("users") if isinstance(data.get("users"), dict) else {},
+        "sessions": data.get("sessions") if isinstance(data.get("sessions"), dict) else {},
+        "sms_challenges": data.get("sms_challenges") if isinstance(data.get("sms_challenges"), dict) else {},
+        "auth_identities": data.get("auth_identities") if isinstance(data.get("auth_identities"), dict) else {},
+        "teams": data.get("teams") if isinstance(data.get("teams"), dict) else {},
+        "checkouts": data.get("checkouts") if isinstance(data.get("checkouts"), dict) else {},
+        "billing_events": data.get("billing_events") if isinstance(data.get("billing_events"), list) else [],
+        "credit_ledger": data.get("credit_ledger") if isinstance(data.get("credit_ledger"), list) else [],
+        "referral_events": data.get("referral_events") if isinstance(data.get("referral_events"), list) else [],
+        "email_outbox": data.get("email_outbox") if isinstance(data.get("email_outbox"), list) else [],
+    }
+
+
+@contextlib.contextmanager
+def _auth_store_txn(jobs_dir: Path):
+    """Hold the auth store lock across a whole read-modify-write sequence.
+
+    Reading and writing under separate lock acquisitions is not enough: two
+    requests each read the same snapshot, both mutate their own copy, and the
+    later write silently discards the earlier one. Everything between the read
+    and the write has to stay inside one acquisition.
+
+    The write is explicit -- call ``txn.commit()``. An early ``return`` or a
+    raised exception therefore leaves the on-disk store untouched, matching the
+    original read/modify/write code where reaching ``_write_auth_store`` was
+    the only thing that persisted anything.
+    """
+
+    class _Txn:
+        def __init__(self, store: dict[str, Any]) -> None:
+            self.store = store
+            self.committed = False
+
+        def commit(self) -> None:
+            _write_auth_store(jobs_dir, self.store)
+            self.committed = True
+
+    with _AUTH_STORE_LOCK:
+        yield _Txn(_read_auth_store(jobs_dir))
+
+
+def _write_auth_store(jobs_dir: Path, data: dict[str, Any]) -> None:
+    path = _auth_store_path(jobs_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, ensure_ascii=False, indent=2)
+    # Serve runs on ThreadingHTTPServer, so concurrent requests can write here at
+    # the same time. Write to a private temp file and os.replace() it in: readers
+    # then see either the old or the new store, never a half-written one.
+    with _AUTH_STORE_LOCK:
+        tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp_path.write_text(payload, encoding="utf-8")
+            os.replace(tmp_path, path)
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def _avatar_dir(jobs_dir: Path) -> Path:
+    return jobs_dir / "_auth" / "avatars"
+
+
+def _clean_display_name(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", "", cleaned)
+    if len(cleaned) > 32:
+        cleaned = cleaned[:32].rstrip()
+    return cleaned
+
+
+def _friendly_default_name(email: str = "", phone: str = "", fallback: str = "") -> str:
+    email = str(email or "").strip().lower()
+    phone = _normalize_phone(phone)
+    fallback = _clean_display_name(fallback)
+    if fallback and not fallback.startswith("user_"):
+        return fallback
+    if email and "@" in email and not email.endswith(".local"):
+        local = email.split("@", 1)[0].replace(".", " ").replace("_", " ").replace("-", " ")
+        return _clean_display_name(local.title()) or "Best PPT User"
+    if phone:
+        return f"用户 {phone[:3]}****{phone[-4:]}" if len(phone) >= 7 else "Best PPT User"
+    return "Best PPT User"
+
+
+def _avatar_data_url(jobs_dir: Path, user: dict[str, Any]) -> str:
+    avatar_file = str(user.get("avatar_file") or "").strip()
+    avatar_mime = str(user.get("avatar_mime") or "").strip()
+    if not avatar_file or not avatar_mime:
+        return ""
+    path = (_avatar_dir(jobs_dir) / Path(avatar_file).name).resolve()
+    try:
+        path.relative_to(_avatar_dir(jobs_dir).resolve())
+    except ValueError:
+        return ""
+    if not path.exists() or path.stat().st_size > 512 * 1024:
+        return ""
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{avatar_mime};base64,{encoded}"
+
+
+def _save_avatar_data_url(jobs_dir: Path, user: dict[str, Any], data_url: str) -> None:
+    value = str(data_url or "").strip()
+    if not value:
+        user.pop("avatar_file", None)
+        user.pop("avatar_mime", None)
+        return
+    match = re.match(r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$", value)
+    if not match:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Avatar must be a PNG, JPEG, or WebP data URL")
+    mime = match.group(1)
+    try:
+        data = base64.b64decode(re.sub(r"\s+", "", match.group(2)), validate=True)
+    except Exception as exc:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Avatar image is not valid base64") from exc
+    if len(data) > 512 * 1024:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Avatar image must be 512KB or smaller")
+    suffix = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[mime]
+    user_id = re.sub(r"[^A-Za-z0-9_-]", "", str(user.get("id") or "user")) or "user"
+    directory = _avatar_dir(jobs_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    for old in directory.glob(f"{user_id}.*"):
+        if old.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    filename = f"{user_id}{suffix}"
+    (directory / filename).write_bytes(data)
+    user["avatar_file"] = filename
+    user["avatar_mime"] = mime
+
+
+def _password_hash(password: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+
+
+def _b64url_decode(value: str) -> bytes:
+    padded = value + "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def _supabase_jwt_secret() -> str:
+    return os.environ.get("SUPABASE_JWT_SECRET", "").strip()
+
+
+def _supabase_enabled() -> bool:
+    provider = os.environ.get("PPT_MASTER_AUTH_PROVIDER", "").strip().lower()
+    return provider in {"supabase", "cloudbase", "clerk", "hybrid", "unified", "multi"} and bool(_supabase_jwt_secret())
+
+
+def _auth_provider_enabled(name: str) -> bool:
+    provider = os.environ.get("PPT_MASTER_AUTH_PROVIDER", "").strip().lower()
+    return provider in {name, "hybrid", "unified", "multi"}
+
+
+def _cloudbase_env_id() -> str:
+    return os.environ.get("CLOUDBASE_ENV_ID", os.environ.get("TCB_ENV_ID", "")).strip()
+
+
+def _cloudbase_base_url() -> str:
+    configured = os.environ.get("CLOUDBASE_AUTH_BASE_URL", os.environ.get("TCB_AUTH_BASE_URL", "")).strip().rstrip("/")
+    if configured:
+        return configured
+    env_id = _cloudbase_env_id()
+    return f"https://{env_id}.ap-shanghai.tcb-api.tencentcloudapi.com" if env_id else ""
+
+
+def _cloudbase_auth_origin() -> str:
+    configured = os.environ.get("CLOUDBASE_AUTH_API_ORIGIN", os.environ.get("TCB_AUTH_API_ORIGIN", "")).strip().rstrip("/")
+    if configured:
+        return configured
+    env_id = _cloudbase_env_id()
+    return f"https://{env_id}.api.tcloudbasegateway.com" if env_id else ""
+
+
+def _cloudbase_client_id() -> str:
+    return os.environ.get("CLOUDBASE_CLIENT_ID", os.environ.get("TCB_CLIENT_ID", "")).strip() or _cloudbase_env_id()
+
+
+def _cloudbase_client_secret() -> str:
+    return os.environ.get("CLOUDBASE_CLIENT_SECRET", os.environ.get("TCB_CLIENT_SECRET", "")).strip()
+
+
+def _cloudbase_publishable_key() -> str:
+    return (
+        os.environ.get("CLOUDBASE_PUBLISHABLE_KEY", "")
+        or os.environ.get("TCB_PUBLISHABLE_KEY", "")
+        or os.environ.get("CLOUDBASE_ACCESS_KEY", "")
+        or os.environ.get("TCB_ACCESS_KEY", "")
+    ).strip()
+
+
+def _cloudbase_username_for_email(email: str) -> str:
+    digest = hashlib.sha1(email.strip().lower().encode("utf-8")).hexdigest()
+    return f"u{digest[:20]}"
+
+
+def _cloudbase_enabled() -> bool:
+    provider = os.environ.get("PPT_MASTER_AUTH_PROVIDER", "").strip().lower()
+    return provider in {"cloudbase", "hybrid", "unified", "multi"} and bool(_cloudbase_base_url())
+
+
+def _cloudbase_sms_proxy_enabled() -> bool:
+    provider = os.environ.get("PPT_MASTER_AUTH_PROVIDER", "").strip().lower()
+    return provider in {"cloudbase", "hybrid", "unified", "multi"} and bool(_cloudbase_auth_origin())
+
+
+def _cloudbase_auth_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    origin = _cloudbase_auth_origin()
+    if not origin:
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "CloudBase Auth is not configured")
+    client_id = _cloudbase_client_id()
+    query = f"?{urllib.parse.urlencode({'client_id': client_id})}" if client_id else ""
+    url = f"{origin}/auth/v1/{path.lstrip('/')}{query}"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json;charset=UTF-8",
+        "x-device-id": os.environ.get("CLOUDBASE_DEVICE_ID", "ppt-master-api"),
+        "x-request-id": f"ppt-master-{uuid.uuid4().hex}",
+    }
+    client_secret = _cloudbase_client_secret()
+    if client_id and client_secret:
+        credential = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {credential}"
+    publishable_key = _cloudbase_publishable_key()
+    if publishable_key and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {publishable_key}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_limit_int("CLOUDBASE_AUTH_TIMEOUT_SECONDS", 8)) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            data = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            data = {"error": f"HTTP {exc.code}"}
+        message = data.get("error_description") or data.get("message") or data.get("error") or f"HTTP {exc.code}"
+        raise ApiError(HTTPStatus.BAD_GATEWAY, str(message))
+    except Exception as exc:
+        raise ApiError(HTTPStatus.BAD_GATEWAY, f"CloudBase Auth request failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ApiError(HTTPStatus.BAD_GATEWAY, "Invalid CloudBase Auth response")
+    if data.get("error") or data.get("error_code") or data.get("code"):
+        message = data.get("error_description") or data.get("message") or data.get("error") or data.get("code")
+        raise ApiError(HTTPStatus.BAD_GATEWAY, str(message))
+    return data.get("data") if isinstance(data.get("data"), dict) else data
+
+
+def _verify_supabase_jwt(token: str) -> dict[str, Any] | None:
+    if not token or token.count(".") != 2 or not _supabase_enabled():
+        return None
+    try:
+        header_b64, payload_b64, signature_b64 = token.split(".", 2)
+        header = json.loads(_b64url_decode(header_b64).decode("utf-8"))
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+        if str(header.get("alg") or "").upper() != "HS256":
+            return None
+        signed = f"{header_b64}.{payload_b64}".encode("ascii")
+        expected = hmac.new(_supabase_jwt_secret().encode("utf-8"), signed, hashlib.sha256).digest()
+        actual = _b64url_decode(signature_b64)
+        if not hmac.compare_digest(expected, actual):
+            return None
+        now = time.time()
+        if payload.get("exp") is not None and float(payload.get("exp") or 0) < now:
+            return None
+        if payload.get("nbf") is not None and float(payload.get("nbf") or 0) > now + 60:
+            return None
+        expected_issuer = os.environ.get("SUPABASE_JWT_ISSUER", "").strip()
+        if not expected_issuer:
+            supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+            if supabase_url:
+                expected_issuer = f"{supabase_url}/auth/v1"
+        if expected_issuer and str(payload.get("iss") or "").rstrip("/") != expected_issuer.rstrip("/"):
+            return None
+        expected_audience = os.environ.get("SUPABASE_JWT_AUDIENCE", "").strip()
+        if expected_audience:
+            audience = payload.get("aud")
+            audiences = audience if isinstance(audience, list) else [audience]
+            if expected_audience not in [str(item) for item in audiences]:
+                return None
+        return payload
+    except Exception:
+        return None
+
+
+def _b64url_int(value: str) -> int:
+    return int.from_bytes(_b64url_decode(value), "big")
+
+
+def _clerk_issuer() -> str:
+    issuer = os.environ.get("CLERK_JWT_ISSUER", os.environ.get("CLERK_ISSUER", "")).strip().rstrip("/")
+    if issuer:
+        return issuer
+    frontend_api = os.environ.get("CLERK_FRONTEND_API", "").strip().rstrip("/")
+    if frontend_api:
+        return frontend_api if frontend_api.startswith("https://") else f"https://{frontend_api}"
+    return ""
+
+
+def _clerk_jwks_url() -> str:
+    explicit = os.environ.get("CLERK_JWKS_URL", "").strip()
+    if explicit:
+        return explicit
+    issuer = _clerk_issuer()
+    return f"{issuer}/.well-known/jwks.json" if issuer else ""
+
+
+def _clerk_enabled() -> bool:
+    if not _auth_provider_enabled("clerk"):
+        return False
+    return bool(os.environ.get("CLERK_JWT_PUBLIC_KEY", "").strip() or _clerk_jwks_url())
+
+
+def _clerk_jwks() -> list[dict[str, Any]]:
+    url = _clerk_jwks_url()
+    if not url:
+        return []
+    now = time.time()
+    if _JWKS_CACHE.get("url") == url and now - float(_JWKS_CACHE.get("fetched_at") or 0) < 300:
+        return list(_JWKS_CACHE.get("keys") or [])
+    with urllib.request.urlopen(url, timeout=_limit_int("CLERK_JWKS_TIMEOUT_SECONDS", 8)) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    keys = data.get("keys") if isinstance(data, dict) else []
+    keys = keys if isinstance(keys, list) else []
+    _JWKS_CACHE.update({"url": url, "fetched_at": now, "keys": keys})
+    return keys
+
+
+def _clerk_public_key(header: dict[str, Any]):
+    pem = os.environ.get("CLERK_JWT_PUBLIC_KEY", "").strip().replace("\\n", "\n")
+    if pem:
+        return serialization.load_pem_public_key(_pem_key(pem, "public"))
+    kid = str(header.get("kid") or "").strip()
+    for key in _clerk_jwks():
+        if not isinstance(key, dict) or str(key.get("kid") or "") != kid:
+            continue
+        if key.get("kty") != "RSA" or not key.get("n") or not key.get("e"):
+            continue
+        numbers = rsa.RSAPublicNumbers(_b64url_int(str(key["e"])), _b64url_int(str(key["n"])))
+        return numbers.public_key()
+    return None
+
+
+def _verify_clerk_jwt(token: str) -> dict[str, Any] | None:
+    if not token or token.count(".") != 2 or not _clerk_enabled():
+        return None
+    try:
+        header_b64, payload_b64, signature_b64 = token.split(".", 2)
+        header = json.loads(_b64url_decode(header_b64).decode("utf-8"))
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+        if str(header.get("alg") or "").upper() != "RS256":
+            return None
+        public_key = _clerk_public_key(header)
+        if not public_key:
+            return None
+        public_key.verify(
+            _b64url_decode(signature_b64),
+            f"{header_b64}.{payload_b64}".encode("ascii"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        now = time.time()
+        if payload.get("exp") is not None and float(payload.get("exp") or 0) < now:
+            return None
+        if payload.get("nbf") is not None and float(payload.get("nbf") or 0) > now + 60:
+            return None
+        expected_issuer = _clerk_issuer()
+        if expected_issuer and str(payload.get("iss") or "").rstrip("/") != expected_issuer.rstrip("/"):
+            return None
+        expected_audience = os.environ.get("CLERK_JWT_AUDIENCE", "").strip()
+        if expected_audience:
+            audience = payload.get("aud")
+            audiences = audience if isinstance(audience, list) else [audience]
+            if expected_audience not in [str(item) for item in audiences]:
+                return None
+        return payload
+    except Exception:
+        return None
+
+
+def _find_user_id_by_email(store: dict[str, Any], email: str) -> str:
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return ""
+    for user_id, user in (store.get("users") or {}).items():
+        if isinstance(user, dict) and str(user.get("email") or "").strip().lower() == normalized:
+            return str(user_id)
+    return ""
+
+
+def _normalize_phone(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("86") and len(digits) > 11:
+        return f"+{digits[:2]} {digits[2:]}"
+    if raw.startswith("+"):
+        return f"+{digits[:-11]} {digits[-11:]}" if len(digits) > 11 else f"+{digits}"
+    return f"+86 {digits}" if len(digits) == 11 else digits
+
+
+def _find_user_id_by_phone(store: dict[str, Any], phone: str) -> str:
+    normalized = _normalize_phone(phone)
+    if not normalized:
+        return ""
+    for user_id, user in (store.get("users") or {}).items():
+        if not isinstance(user, dict):
+            continue
+        user_phone = str(user.get("phone") or user.get("phone_number") or "")
+        if _normalize_phone(user_phone) == normalized:
+            return str(user_id)
+    return ""
+
+
+def _create_internal_user(store: dict[str, Any], email: str, referral_code: str = "") -> str:
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    normalized_email = str(email or "").strip().lower()
+    user = {
+        "id": user_id,
+        "email": normalized_email,
+        "display_name": _friendly_default_name(email=normalized_email),
+        "plan": "free",
+        "quota": {"date": _quota_date(), "used": 0},
+        "created_at": _now_like(),
+        "auth_source": "external",
+    }
+    store.setdefault("users", {})[user_id] = user
+    _bind_referral_on_signup(store, user, referral_code)
+    return user_id
+
+
+def _user_from_supabase_token(jobs_dir: Path, token: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    payload = _verify_supabase_jwt(token)
+    store = _read_auth_store(jobs_dir)
+    if not payload:
+        return None, store
+    provider_user_id = str(payload.get("sub") or "").strip()
+    metadata = payload.get("user_metadata") if isinstance(payload.get("user_metadata"), dict) else {}
+    email = str(payload.get("email") or metadata.get("email") or "").strip().lower()
+    if not provider_user_id:
+        return None, store
+    identities = store.setdefault("auth_identities", {})
+    identity_key = f"supabase:{provider_user_id}"
+    identity = identities.get(identity_key) if isinstance(identities.get(identity_key), dict) else None
+    user_id = str((identity or {}).get("internal_user_id") or "")
+    if not user_id:
+        user_id = _find_user_id_by_email(store, email)
+    if not user_id:
+        user_id = _create_internal_user(store, email or f"{provider_user_id}@supabase.local")
+    user = (store.get("users") or {}).get(user_id)
+    if not isinstance(user, dict):
+        return None, store
+    if email and not user.get("email"):
+        user["email"] = email
+    user["auth_provider"] = user.get("auth_provider") or "supabase"
+    user["last_auth_at"] = _now_like()
+    _ensure_referral_code(store, user)
+    store["users"][user_id] = user
+    identities[identity_key] = {
+        "provider": "supabase",
+        "provider_user_id": provider_user_id,
+        "email": email or user.get("email") or "",
+        "internal_user_id": user_id,
+        "updated_at": _now_like(),
+        "created_at": (identity or {}).get("created_at") or _now_like(),
+    }
+    _write_auth_store(jobs_dir, store)
+    return user, store
+
+
+def _user_from_clerk_token(jobs_dir: Path, token: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    payload = _verify_clerk_jwt(token)
+    store = _read_auth_store(jobs_dir)
+    if not payload:
+        return None, store
+    provider_user_id = str(payload.get("sub") or "").strip()
+    metadata = payload.get("public_metadata") if isinstance(payload.get("public_metadata"), dict) else {}
+    private_metadata = payload.get("private_metadata") if isinstance(payload.get("private_metadata"), dict) else {}
+    email = str(
+        payload.get("email")
+        or payload.get("email_address")
+        or metadata.get("email")
+        or private_metadata.get("email")
+        or ""
+    ).strip().lower()
+    if not provider_user_id:
+        return None, store
+    identities = store.setdefault("auth_identities", {})
+    identity_key = f"clerk:{provider_user_id}"
+    identity = identities.get(identity_key) if isinstance(identities.get(identity_key), dict) else None
+    user_id = str((identity or {}).get("internal_user_id") or "")
+    if not user_id:
+        user_id = _find_user_id_by_email(store, email)
+    if not user_id:
+        user_id = _create_internal_user(store, email or f"{provider_user_id}@clerk.local")
+    user = (store.get("users") or {}).get(user_id)
+    if not isinstance(user, dict):
+        return None, store
+    if email and not user.get("email"):
+        user["email"] = email
+    user["auth_provider"] = user.get("auth_provider") or "clerk"
+    user["last_auth_at"] = _now_like()
+    _ensure_referral_code(store, user)
+    store["users"][user_id] = user
+    identities[identity_key] = {
+        "provider": "clerk",
+        "provider_user_id": provider_user_id,
+        "email": email or user.get("email") or "",
+        "internal_user_id": user_id,
+        "updated_at": _now_like(),
+        "created_at": (identity or {}).get("created_at") or _now_like(),
+    }
+    _write_auth_store(jobs_dir, store)
+    return user, store
+
+
+def _cloudbase_user_profile(token: str) -> dict[str, Any] | None:
+    if not token or not _cloudbase_enabled():
+        return None
+    base_url = _cloudbase_base_url()
+    query = {}
+    client_id = os.environ.get("CLOUDBASE_CLIENT_ID", os.environ.get("TCB_CLIENT_ID", "")).strip()
+    if client_id:
+        query["client_id"] = client_id
+    url = f"{base_url}/auth/v1/user/me"
+    if query:
+        url = f"{url}?{urllib.parse.urlencode(query)}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_limit_int("CLOUDBASE_AUTH_TIMEOUT_SECONDS", 8)) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data.get("data") if isinstance(data.get("data"), dict) else data
+
+
+def _first_cloudbase_value(profile: dict[str, Any], names: list[str]) -> str:
+    for name in names:
+        value = profile.get(name)
+        if value:
+            return str(value)
+    for key in ("user", "user_info", "profile", "customUser"):
+        nested = profile.get(key)
+        if isinstance(nested, dict):
+            value = _first_cloudbase_value(nested, names)
+            if value:
+                return value
+    identities = profile.get("identities")
+    if isinstance(identities, list):
+        for identity in identities:
+            if isinstance(identity, dict):
+                value = _first_cloudbase_value(identity, names)
+                if value:
+                    return value
+    return ""
+
+
+def _user_from_cloudbase_token(jobs_dir: Path, token: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    store = _read_auth_store(jobs_dir)
+    profile = _cloudbase_user_profile(token)
+    if not profile:
+        return None, store
+    provider_user_id = _first_cloudbase_value(profile, ["user_id", "uid", "sub", "uuid", "id", "_id"]).strip()
+    email = _first_cloudbase_value(profile, ["email", "email_address", "mail"]).strip().lower()
+    phone = _normalize_phone(_first_cloudbase_value(profile, ["phone", "phone_number", "mobile", "mobile_phone", "phoneNumber"]))
+    username = _first_cloudbase_value(profile, ["username", "name", "nickname", "display_name"]).strip()
+    if not provider_user_id:
+        return None, store
+    identities = store.setdefault("auth_identities", {})
+    identity_key = f"cloudbase:{provider_user_id}"
+    identity = identities.get(identity_key) if isinstance(identities.get(identity_key), dict) else None
+    user_id = str((identity or {}).get("internal_user_id") or "")
+    if not user_id:
+        user_id = _find_user_id_by_email(store, email)
+    if not user_id:
+        user_id = _find_user_id_by_phone(store, phone)
+    if not user_id:
+        fallback_email = email or f"{provider_user_id}@cloudbase.local"
+        user_id = _create_internal_user(store, fallback_email)
+    user = (store.get("users") or {}).get(user_id)
+    if not isinstance(user, dict):
+        return None, store
+    if email and not user.get("email"):
+        user["email"] = email
+    if phone and not user.get("phone"):
+        user["phone"] = phone
+    if username and not user.get("name"):
+        user["name"] = username
+    if username and not user.get("display_name"):
+        user["display_name"] = _clean_display_name(username)
+    if not user.get("display_name"):
+        user["display_name"] = _friendly_default_name(email=email or str(user.get("email") or ""), phone=phone or str(user.get("phone") or ""), fallback=str(user.get("name") or ""))
+    user["auth_provider"] = user.get("auth_provider") or "cloudbase"
+    user["last_auth_at"] = _now_like()
+    _ensure_referral_code(store, user)
+    store["users"][user_id] = user
+    identities[identity_key] = {
+        "provider": "cloudbase",
+        "provider_user_id": provider_user_id,
+        "email": email or user.get("email") or "",
+        "phone": phone or user.get("phone") or "",
+        "internal_user_id": user_id,
+        "updated_at": _now_like(),
+        "created_at": (identity or {}).get("created_at") or _now_like(),
+    }
+    _write_auth_store(jobs_dir, store)
+    return user, store
+
+
+def _plan_limit(plan: str) -> int:
+    return {"free": 30, "plus": 200, "pro": 1000, "team": 5000}.get(str(plan or "free").lower(), 30)
+
+
+def _plan_period(plan: str) -> str:
+    return "daily" if str(plan or "free").lower() == "free" else "monthly"
+
+
+def _plan_currency_price_cents(plan: str, currency: str) -> int:
+    prices = {
+        "USD": {"free": 0, "plus": 599, "pro": 1999, "team": 9999},
+        "CNY": {"free": 0, "plus": 2900, "pro": 9900, "team": 49900},
+    }
+    table = prices.get(str(currency or "USD").upper(), prices["USD"])
+    return table.get(str(plan or "free").lower(), 0)
+
+
+def _plan_catalog(currency: str = "USD") -> dict[str, dict[str, Any]]:
+    currency = str(currency or "USD").upper()
+    return {
+        plan: {
+            "plan": plan,
+            "credits": _plan_limit(plan),
+            "period": _plan_period(plan),
+            "amount_cents": _plan_currency_price_cents(plan, currency),
+            "currency": currency,
+        }
+        for plan in ("free", "plus", "pro", "team")
+    }
+
+
+def _billing_region_from_host(host: str) -> str:
+    value = str(host or "").split(":", 1)[0].lower()
+    if value.endswith(".cn") or value.startswith("cn.") or value.startswith("ppt-cn."):
+        return "cn"
+    return "global"
+
+
+def _billing_config(handler: BaseHTTPRequestHandler, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = payload or {}
+    region = str(payload.get("region") or os.environ.get("PPT_MASTER_REGION") or "").strip().lower()
+    if region not in {"cn", "global"}:
+        region = _billing_region_from_host(handler.headers.get("Host", ""))
+    currency = str(payload.get("currency") or os.environ.get("PPT_MASTER_CURRENCY") or ("CNY" if region == "cn" else "USD")).strip().upper()
+    provider = str(payload.get("payment_provider") or payload.get("market_payment_provider") or payload.get("provider") or os.environ.get("PPT_MASTER_PAYMENT_PROVIDER") or "").strip().lower()
+    if not provider:
+        provider = "aggregator" if region == "cn" else "paddle"
+    return {
+        "region": region,
+        "currency": currency,
+        "enabled": _payments_enabled(),
+        "payment_provider": provider,
+        "supported_providers": ["aggregator", "alipay", "wechat"] if region == "cn" else ["paddle", "stripe"],
+        "alipay_configured": _alipay_configured(),
+        "ypay_configured": _ypay_configured(),
+        "paddle_configured": _paddle_configured(),
+        "plans": _plan_catalog(currency),
+    }
+
+
+def _alipay_configured() -> bool:
+    return all(os.environ.get(name, "").strip() for name in (
+        "PPT_MASTER_ALIPAY_APP_ID",
+        "PPT_MASTER_ALIPAY_PRIVATE_KEY",
+        "PPT_MASTER_ALIPAY_PUBLIC_KEY",
+    ))
+
+
+def _alipay_gateway() -> str:
+    return os.environ.get("PPT_MASTER_ALIPAY_GATEWAY", "https://openapi.alipay.com/gateway.do").strip()
+
+
+def _pem_key(value: str, kind: str) -> bytes:
+    text = str(value or "").strip().replace("\\n", "\n")
+    if "-----BEGIN" in text:
+        return text.encode("utf-8")
+    compact = "".join(text.split())
+    if not compact:
+        raise ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, f"Missing Alipay {kind} key")
+    header = "PRIVATE KEY" if kind == "private" else "PUBLIC KEY"
+    lines = "\n".join(compact[index:index + 64] for index in range(0, len(compact), 64))
+    return f"-----BEGIN {header}-----\n{lines}\n-----END {header}-----\n".encode("utf-8")
+
+
+def _alipay_sign_content(params: dict[str, Any]) -> str:
+    items = []
+    for key in sorted(params):
+        if key in {"sign", "sign_type"}:
+            continue
+        value = params.get(key)
+        if value is None or value == "":
+            continue
+        items.append(f"{key}={value}")
+    return "&".join(items)
+
+
+def _alipay_sign(params: dict[str, Any]) -> str:
+    private_key = serialization.load_pem_private_key(
+        _pem_key(os.environ.get("PPT_MASTER_ALIPAY_PRIVATE_KEY", ""), "private"),
+        password=None,
+    )
+    signature = private_key.sign(
+        _alipay_sign_content(params).encode("utf-8"),
+        padding.PKCS1v15(),
+        hashes.SHA256(),
+    )
+    return base64.b64encode(signature).decode("ascii")
+
+
+def _alipay_verify(params: dict[str, Any]) -> bool:
+    signature = str(params.get("sign") or "").strip()
+    if not signature:
+        return False
+    public_key = serialization.load_pem_public_key(
+        _pem_key(os.environ.get("PPT_MASTER_ALIPAY_PUBLIC_KEY", ""), "public")
+    )
+    try:
+        public_key.verify(
+            base64.b64decode(signature),
+            _alipay_sign_content(params).encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _yuan_from_cents(amount_cents: int) -> str:
+    return f"{max(0, int(amount_cents)) / 100:.2f}"
+
+
+def _cents_from_yuan(value: str) -> int:
+    try:
+        return int(round(float(str(value or "0")) * 100))
+    except Exception:
+        return 0
+
+
+def _ypay_configured() -> bool:
+    return bool(os.environ.get("PPT_MASTER_YPAY_PID", "").strip() and os.environ.get("PPT_MASTER_YPAY_KEY", "").strip())
+
+
+def _paddle_configured() -> bool:
+    return bool(os.environ.get("PPT_MASTER_PADDLE_CHECKOUT_URL_TEMPLATE", "").strip())
+
+
+def _ypay_sign_content(params: dict[str, Any]) -> str:
+    items = []
+    for key in sorted(params):
+        if key in {"sign", "sign_type"}:
+            continue
+        value = params.get(key)
+        if value is None or value == "":
+            continue
+        items.append(f"{key}={value}")
+    return "&".join(items)
+
+
+def _ypay_sign(params: dict[str, Any]) -> str:
+    key = os.environ.get("PPT_MASTER_YPAY_KEY", "").strip()
+    if not key:
+        raise ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "YPay key is not configured")
+    return hashlib.md5(f"{_ypay_sign_content(params)}{key}".encode("utf-8")).hexdigest()
+
+
+def _ypay_verify(params: dict[str, Any]) -> bool:
+    signature = str(params.get("sign") or "").strip().lower()
+    if not signature:
+        return False
+    return hmac.compare_digest(signature, _ypay_sign(params))
+
+
+def _ypay_checkout_url(handler: BaseHTTPRequestHandler, checkout: dict[str, Any]) -> str:
+    if not _ypay_configured():
+        return ""
+    base_url = os.environ.get("PPT_MASTER_YPAY_BASE_URL", "https://pay.phpwc.com").strip().rstrip("/")
+    pay_type = os.environ.get("PPT_MASTER_YPAY_TYPE", "alipay").strip() or "alipay"
+    notify_url = os.environ.get("PPT_MASTER_YPAY_NOTIFY_URL", "").strip() or "https://api.aigcstory.site/billing/ypay/notify"
+    return_url = os.environ.get("PPT_MASTER_YPAY_RETURN_URL", "").strip() or f"{handler.frontend_base_url.rstrip('/')}/cloud-generator.html"
+    return_url = f"{return_url}{'&' if '?' in return_url else '?'}billing=processing&checkout_id={urllib.parse.quote(str(checkout.get('id') or ''))}"
+    params = {
+        "pid": os.environ.get("PPT_MASTER_YPAY_PID", "").strip(),
+        "type": pay_type,
+        "out_trade_no": str(checkout.get("out_trade_no") or checkout.get("id") or ""),
+        "notify_url": notify_url,
+        "return_url": return_url,
+        "name": f"PPT Master {str(checkout.get('plan') or '').upper()}",
+        "money": _yuan_from_cents(int(checkout.get("amount_cents") or 0)),
+        "random": str(int(time.time())),
+        "param": str(checkout.get("id") or ""),
+    }
+    params["sign"] = _ypay_sign(params)
+    params["sign_type"] = "MD5"
+    return f"{base_url}/submit.php?{urllib.parse.urlencode(params)}"
+
+
+def _alipay_checkout_url(handler: BaseHTTPRequestHandler, checkout: dict[str, Any]) -> str:
+    if not _alipay_configured():
+        return ""
+    app_id = os.environ.get("PPT_MASTER_ALIPAY_APP_ID", "").strip()
+    notify_url = os.environ.get("PPT_MASTER_ALIPAY_NOTIFY_URL", "").strip() or "https://api.aigcstory.site/billing/alipay/notify"
+    return_url = os.environ.get("PPT_MASTER_ALIPAY_RETURN_URL", "").strip() or f"{handler.frontend_base_url.rstrip('/')}/cloud-generator.html"
+    return_url = f"{return_url}{'&' if '?' in return_url else '?'}billing=processing&checkout_id={urllib.parse.quote(str(checkout.get('id') or ''))}"
+    biz_content = {
+        "out_trade_no": str(checkout.get("out_trade_no") or checkout.get("id") or ""),
+        "product_code": "FAST_INSTANT_TRADE_PAY",
+        "total_amount": _yuan_from_cents(int(checkout.get("amount_cents") or 0)),
+        "subject": f"PPT Master {str(checkout.get('plan') or '').upper()}",
+        "body": f"PPT Master membership plan: {checkout.get('plan')}",
+    }
+    params = {
+        "app_id": app_id,
+        "method": "alipay.trade.page.pay",
+        "format": "JSON",
+        "charset": "utf-8",
+        "sign_type": "RSA2",
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        "version": "1.0",
+        "notify_url": notify_url,
+        "return_url": return_url,
+        "biz_content": json.dumps(biz_content, ensure_ascii=False, separators=(",", ":")),
+    }
+    params["sign"] = _alipay_sign(params)
+    return f"{_alipay_gateway()}?{urllib.parse.urlencode(params)}"
+
+
+def _generation_credit_breakdown(payload: dict[str, Any]) -> dict[str, Any]:
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    try:
+        page_count = int(brief.get("page_count") or payload.get("page_count") or 8)
+    except Exception:
+        page_count = 8
+    page_count = max(1, min(page_count, 40))
+    base = 10
+    images = 0
+    audio = 0
+    animations = 0
+    if brief.get("include_images") is True:
+        images = page_count * 3
+    if brief.get("include_audio") is True:
+        audio = page_count * 2
+    if brief.get("include_animations") is True:
+        animations = 2
+    return {
+        "cost_model": "credits_v1",
+        "page_count": page_count,
+        "base": base,
+        "images": images,
+        "audio": audio,
+        "animations": animations,
+        "total": max(1, base + images + audio + animations),
+        "include_images": brief.get("include_images") is True,
+        "include_audio": brief.get("include_audio") is True,
+        "include_animations": brief.get("include_animations") is True,
+    }
+
+
+def _generation_credit_cost(payload: dict[str, Any]) -> int:
+    return int(_generation_credit_breakdown(payload).get("total") or 1)
+
+
+def _quota_date() -> str:
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def _session_ttl_seconds() -> int:
+    return _limit_int("PPT_MASTER_SESSION_TTL_SECONDS", 30 * 24 * 60 * 60)
+
+
+def _normalized_quota(user: dict[str, Any]) -> dict[str, Any]:
+    quota = user.get("quota") if isinstance(user.get("quota"), dict) else {}
+    today = _quota_date()
+    bonus = max(0, int(quota.get("bonus") or 0))
+    if quota.get("date") != today:
+        return {"date": today, "used": 0, "bonus": bonus, "unit": "credits"}
+    normalized = dict(quota)
+    normalized["date"] = today
+    normalized["used"] = max(0, int(normalized.get("used") or 0))
+    normalized["bonus"] = bonus
+    normalized["unit"] = "credits"
+    return normalized
+
+
+def _credit_summary(user: dict[str, Any]) -> dict[str, Any]:
+    plan = str(user.get("plan") or "free").lower()
+    quota = _normalized_quota(user)
+    base_limit = _plan_limit(plan)
+    bonus = int(quota.get("bonus") or 0)
+    limit = base_limit + bonus
+    used = int(quota.get("used") or 0)
+    return {
+        "period": _plan_period(plan),
+        "base_limit": base_limit,
+        "bonus": bonus,
+        "limit": limit,
+        "used": used,
+        "remaining": max(0, limit - used),
+        "date": quota["date"],
+        "unit": "credits",
+    }
+
+
+def _public_user(user: dict[str, Any], jobs_dir: Path | None = None) -> dict[str, Any]:
+    plan = str(user.get("plan") or "free").lower()
+    credits = _credit_summary(user)
+    referral_code = str(user.get("referral_code") or "").strip()
+    display_name = _clean_display_name(
+        str(user.get("display_name") or user.get("name") or user.get("nickname") or "")
+    ) or _friendly_default_name(str(user.get("email") or ""), str(user.get("phone") or ""), str(user.get("id") or ""))
+    avatar_url = _avatar_data_url(jobs_dir, user) if jobs_dir else ""
+    return {
+        "user_id": user.get("id"),
+        "email": user.get("email"),
+        "phone": user.get("phone") or "",
+        "name": display_name,
+        "display_name": display_name,
+        "avatar_url": avatar_url,
+        "plan": plan,
+        "team_id": user.get("team_id") or "",
+        "auth_provider": user.get("auth_provider") or "local",
+        "referral_code": referral_code,
+        "quota": credits,
+        "credits": credits,
+    }
+
+
+def _ensure_referral_code(store: dict[str, Any], user: dict[str, Any]) -> str:
+    code = str(user.get("referral_code") or "").strip()
+    existing = {
+        str(item.get("referral_code") or "").strip()
+        for item in (store.get("users") or {}).values()
+        if isinstance(item, dict)
+    }
+    while not code or code in (existing - {str(user.get("referral_code") or "").strip()}):
+        code = secrets.token_urlsafe(8).replace("-", "").replace("_", "")[:10]
+    user["referral_code"] = code
+    return code
+
+
+def _user_by_referral_code(store: dict[str, Any], code: str) -> tuple[str, dict[str, Any] | None]:
+    normalized = str(code or "").strip()
+    if not normalized:
+        return "", None
+    for user_id, user in (store.get("users") or {}).items():
+        if isinstance(user, dict) and str(user.get("referral_code") or "").strip() == normalized:
+            return str(user_id), user
+    return "", None
+
+
+def _credit_ledger(store: dict[str, Any]) -> list[dict[str, Any]]:
+    ledger = store.get("credit_ledger")
+    if not isinstance(ledger, list):
+        ledger = []
+        store["credit_ledger"] = ledger
+    return ledger
+
+
+def _grant_bonus_credits(store: dict[str, Any], user_id: str, credits: int, reason: str, metadata: dict[str, Any] | None = None) -> bool:
+    user = (store.get("users") or {}).get(user_id)
+    if not isinstance(user, dict) or credits <= 0:
+        return False
+    metadata = metadata or {}
+    event_key = str(metadata.get("event_key") or f"{reason}:{user_id}:{credits}")
+    if any(isinstance(item, dict) and item.get("event_key") == event_key for item in _credit_ledger(store)):
+        return False
+    quota = _normalized_quota(user)
+    quota["bonus"] = max(0, int(quota.get("bonus") or 0)) + int(credits)
+    quota["unit"] = "credits"
+    quota["last_credit"] = {"credits": int(credits), "reason": reason, "created_at": _now_like()}
+    user["quota"] = quota
+    store["users"][user_id] = user
+    _credit_ledger(store).append({
+        "event_key": event_key,
+        "user_id": user_id,
+        "credits": int(credits),
+        "reason": reason,
+        "metadata": metadata,
+        "created_at": _now_like(),
+    })
+    return True
+
+
+def _find_user_by_session(jobs_dir: Path, session_token: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    store = _read_auth_store(jobs_dir)
+    session = (store.get("sessions") or {}).get(session_token) if session_token else None
+    if isinstance(session, dict):
+        expires_at = float(session.get("expires_at_epoch") or 0)
+        if expires_at and expires_at < time.time():
+            store["sessions"].pop(session_token, None)
+            _write_auth_store(jobs_dir, store)
+            return None, store
+    user_id = session.get("user_id") if isinstance(session, dict) else ""
+    user = (store.get("users") or {}).get(user_id) if user_id else None
+    return (user if isinstance(user, dict) else None), store
+
+
+def _create_session_for_user_id(store: dict[str, Any], user_id: str) -> dict[str, Any]:
+    user = (store.get("users") or {}).get(user_id)
+    if not isinstance(user, dict):
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "User not found")
+    _ensure_referral_code(store, user)
+    session_token = secrets.token_urlsafe(32)
+    ttl = _session_ttl_seconds()
+    store.setdefault("sessions", {})[session_token] = {
+        "user_id": user_id,
+        "created_at": _now_like(),
+        "expires_at_epoch": round(time.time() + ttl, 3),
+        "ttl_seconds": ttl,
+    }
+    return {
+        "session_token": session_token,
+        "expires_in": ttl,
+        "user": _public_user(user),
+    }
+
+
+def _current_user(handler: BaseHTTPRequestHandler) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    session_user, session_store = _find_user_by_session(handler.jobs_dir, _session_token(handler))
+    if session_user:
+        return session_user, session_store
+
+    bearer = _bearer_token(handler)
+    auth_provider = handler.headers.get("X-PPT-Master-Auth-Provider", "").strip().lower()
+    if auth_provider == "cloudbase":
+        user, store = _user_from_cloudbase_token(handler.jobs_dir, bearer)
+        if user:
+            return user, store
+    if auth_provider == "clerk":
+        user, store = _user_from_clerk_token(handler.jobs_dir, bearer)
+        if user:
+            return user, store
+    user, store = _user_from_supabase_token(handler.jobs_dir, bearer)
+    if user:
+        return user, store
+    if auth_provider != "supabase":
+        user, store = _user_from_clerk_token(handler.jobs_dir, bearer)
+        if user:
+            return user, store
+    if auth_provider != "supabase":
+        user, store = _user_from_cloudbase_token(handler.jobs_dir, bearer)
+        if user:
+            return user, store
+    return session_user, session_store
+
+
+def _auth_response(jobs_dir: Path, payload: dict[str, Any], *, mode: str) -> dict[str, Any]:
+    email = str(payload.get("email") or "").strip().lower()
+    password = str(payload.get("password") or "")
+    referral_code = str(payload.get("referral_code") or payload.get("ref") or "").strip()
+    if not email or "@" not in email:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Valid email is required")
+    if len(password) < 6:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Password must be at least 6 characters")
+
+    with _auth_store_txn(jobs_dir) as _txn:
+        store = _txn.store
+        users = store["users"]
+        existing_id = next((uid for uid, user in users.items() if str(user.get("email") or "").lower() == email), "")
+        if mode == "register":
+            if existing_id:
+                raise ApiError(HTTPStatus.CONFLICT, "Email is already registered")
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            salt = secrets.token_hex(12)
+            users[user_id] = {
+                "id": user_id,
+                "email": email,
+                "salt": salt,
+                "password_hash": _password_hash(password, salt),
+                "plan": "free",
+                "quota": {"date": _quota_date(), "used": 0},
+                "created_at": _now_like(),
+            }
+            _bind_referral_on_signup(store, users[user_id], referral_code)
+        else:
+            if not existing_id:
+                if not payload.get("auto_register"):
+                    raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid email or password")
+                user_id = f"user_{uuid.uuid4().hex[:12]}"
+                salt = secrets.token_hex(12)
+                users[user_id] = {
+                    "id": user_id,
+                    "email": email,
+                    "salt": salt,
+                    "password_hash": _password_hash(password, salt),
+                    "plan": "free",
+                    "quota": {"date": _quota_date(), "used": 0},
+                    "created_at": _now_like(),
+                }
+                _bind_referral_on_signup(store, users[user_id], referral_code)
+            else:
+                user_id = existing_id
+                user = users[user_id]
+                if not secrets.compare_digest(str(user.get("password_hash") or ""), _password_hash(password, str(user.get("salt") or ""))):
+                    raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid email or password")
+
+        response = _create_session_for_user_id(store, user_id)
+        _txn.commit()
+    return response
+
+
+def _cloudbase_sms_start_response(jobs_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    if not _cloudbase_sms_proxy_enabled():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "CloudBase Auth is not configured")
+    phone = _normalize_phone(str(payload.get("phone") or payload.get("phone_number") or ""))
+    if not re.match(r"^\+\d{1,3}\s+\d{6,}$", phone):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Valid phone number is required")
+    data = _cloudbase_auth_request("verification", {"phone_number": phone})
+    verification_id = str(data.get("verification_id") or data.get("messageId") or data.get("message_id") or "").strip()
+    if not verification_id:
+        raise ApiError(HTTPStatus.BAD_GATEWAY, "CloudBase did not return a verification id")
+    with _auth_store_txn(jobs_dir) as _txn:
+        store = _txn.store
+        challenge_id = f"sms_{uuid.uuid4().hex[:16]}"
+        ttl = _limit_int("PPT_MASTER_SMS_CHALLENGE_TTL_SECONDS", 600)
+        store.setdefault("sms_challenges", {})[challenge_id] = {
+            "phone": phone,
+            "verification_id": verification_id,
+            "is_user": bool(data.get("is_user")),
+            "created_at": _now_like(),
+            "expires_at_epoch": round(time.time() + ttl, 3),
+            "referral_code": str(payload.get("referral_code") or payload.get("ref") or "").strip(),
+        }
+        _txn.commit()
+    return {"ok": True, "challenge_id": challenge_id, "expires_in": ttl}
+
+
+def _jwt_payload_unverified(token: str) -> dict[str, Any]:
+    if not token or token.count(".") != 2:
+        return {}
+    try:
+        payload = json.loads(_b64url_decode(token.split(".", 2)[1]).decode("utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _cloudbase_access_token(auth_data: dict[str, Any]) -> str:
+    return str(
+        auth_data.get("access_token")
+        or auth_data.get("accessToken")
+        or auth_data.get("id_token")
+        or auth_data.get("idToken")
+        or auth_data.get("token")
+        or ""
+    ).strip()
+
+
+def _cloudbase_user_session_response(
+    jobs_dir: Path,
+    auth_data: dict[str, Any],
+    *,
+    fallback_email: str = "",
+    fallback_phone: str = "",
+    referral_code: str = "",
+) -> dict[str, Any]:
+    access_token = _cloudbase_access_token(auth_data)
+    if not access_token:
+        raise ApiError(HTTPStatus.BAD_GATEWAY, "CloudBase did not return a login token")
+
+    token_payload = _jwt_payload_unverified(access_token)
+    profile = _cloudbase_user_profile(access_token) or {}
+    provider_user_id = str(
+        auth_data.get("user_id")
+        or auth_data.get("uid")
+        or token_payload.get("sub")
+        or token_payload.get("uid")
+        or token_payload.get("user_id")
+        or _first_cloudbase_value(profile, ["user_id", "uid", "sub", "uuid", "id", "_id"])
+        or ""
+    ).strip()
+    email = str(
+        auth_data.get("email")
+        or token_payload.get("email")
+        or _first_cloudbase_value(profile, ["email", "email_address", "mail"])
+        or fallback_email
+        or ""
+    ).strip().lower()
+    phone_value = _normalize_phone(str(
+        auth_data.get("phone_number")
+        or auth_data.get("phone")
+        or token_payload.get("phone_number")
+        or token_payload.get("phone")
+        or _first_cloudbase_value(profile, ["phone", "phone_number", "mobile", "mobile_phone", "phoneNumber"])
+        or fallback_phone
+        or ""
+    ))
+    username = str(
+        auth_data.get("username")
+        or auth_data.get("name")
+        or _first_cloudbase_value(profile, ["username", "name", "nickname", "display_name"])
+        or ""
+    ).strip()
+
+    with _auth_store_txn(jobs_dir) as _txn:
+        store = _txn.store
+        identities = store.setdefault("auth_identities", {})
+        identity_key = f"cloudbase:{provider_user_id}" if provider_user_id else ""
+        identity = identities.get(identity_key) if identity_key and isinstance(identities.get(identity_key), dict) else None
+        user_id = str((identity or {}).get("internal_user_id") or "")
+        if not user_id:
+            user_id = _find_user_id_by_email(store, email)
+        if not user_id:
+            user_id = _find_user_id_by_phone(store, phone_value)
+        if not user_id:
+            generated_email = email or (f"{provider_user_id}@cloudbase.local" if provider_user_id else f"user-{uuid.uuid4().hex[:8]}@cloudbase.local")
+            user_id = _create_internal_user(store, generated_email, referral_code)
+        user = store.setdefault("users", {}).get(user_id)
+        if not isinstance(user, dict):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "User not found")
+        if email:
+            user["email"] = email
+        if phone_value:
+            user["phone"] = phone_value
+        if username and not user.get("name"):
+            user["name"] = username
+        if username and not user.get("display_name"):
+            user["display_name"] = _clean_display_name(username)
+        if not user.get("display_name"):
+            user["display_name"] = _friendly_default_name(email=email, phone=phone_value, fallback=str(user.get("name") or ""))
+        user["auth_provider"] = "cloudbase"
+        user["last_auth_at"] = _now_like()
+        store["users"][user_id] = user
+        if identity_key:
+            identities[identity_key] = {
+                "provider": "cloudbase",
+                "provider_user_id": provider_user_id,
+                "email": email or user.get("email") or "",
+                "phone": phone_value or user.get("phone") or "",
+                "internal_user_id": user_id,
+                "updated_at": _now_like(),
+                "created_at": (identity or {}).get("created_at") or _now_like(),
+            }
+        response = _create_session_for_user_id(store, user_id)
+        response["cloudbase_session"] = auth_data
+        response["external_auth_provider"] = "cloudbase"
+        _txn.commit()
+    return response
+
+
+def _cloudbase_email_auth_response(jobs_dir: Path, payload: dict[str, Any], *, mode: str) -> dict[str, Any]:
+    if not _cloudbase_sms_proxy_enabled():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "CloudBase Auth is not configured")
+    email = str(payload.get("email") or payload.get("username") or "").strip().lower()
+    password = str(payload.get("password") or "")
+    referral_code = str(payload.get("referral_code") or payload.get("ref") or "").strip()
+    if not email or "@" not in email:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Valid email is required")
+    if len(password) < 6:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Password must be at least 6 characters")
+
+    try:
+        cloudbase_username = _cloudbase_username_for_email(email)
+        if mode == "register":
+            auth_data = _cloudbase_auth_request("signup", {
+                "email": email,
+                "username": cloudbase_username,
+                "password": password,
+                "name": email.split("@", 1)[0],
+            })
+            if not _cloudbase_access_token(auth_data):
+                auth_data = _cloudbase_auth_request("signin", {
+                    "username": cloudbase_username,
+                    "password": password,
+                })
+        else:
+            try:
+                auth_data = _cloudbase_auth_request("signin", {
+                    "username": email,
+                    "password": password,
+                })
+            except ApiError:
+                auth_data = _cloudbase_auth_request("signin", {
+                    "username": cloudbase_username,
+                    "password": password,
+                })
+    except ApiError as exc:
+        lower = exc.message.lower()
+        if "verification_token" in lower or "verification_code" in lower:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "verification_required") from exc
+        if any(term in lower for term in ("password incorrect", "invalid password", "invalid credential", "username or password")):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, exc.message) from exc
+        if any(term in lower for term in ("already", "exist", "registered", "duplicate")):
+            raise ApiError(HTTPStatus.CONFLICT, exc.message) from exc
+        raise
+    return _cloudbase_user_session_response(
+        jobs_dir,
+        auth_data,
+        fallback_email=email,
+        referral_code=referral_code,
+    )
+
+
+def _cloudbase_sms_verify_response(jobs_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    if not _cloudbase_sms_proxy_enabled():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "CloudBase Auth is not configured")
+    challenge_id = str(payload.get("challenge_id") or payload.get("messageId") or "").strip()
+    code = str(payload.get("code") or payload.get("token") or payload.get("verification_code") or "").strip()
+    phone = _normalize_phone(str(payload.get("phone") or payload.get("phone_number") or ""))
+    if not challenge_id or not code:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Verification code is required")
+    with _auth_store_txn(jobs_dir) as _txn:
+        store = _txn.store
+        challenges = store.setdefault("sms_challenges", {})
+        challenge = challenges.get(challenge_id) if isinstance(challenges.get(challenge_id), dict) else None
+        if not challenge:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Verification code expired, please request a new one")
+        if float(challenge.get("expires_at_epoch") or 0) < time.time():
+            challenges.pop(challenge_id, None)
+            # Persist the expiry cleanup before raising (matches original flow).
+            _txn.commit()
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Verification code expired, please request a new one")
+        challenge_phone = _normalize_phone(str(challenge.get("phone") or ""))
+        if phone and challenge_phone and phone != challenge_phone:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Phone number does not match the verification request")
+        verification_id = str(challenge.get("verification_id") or "")
+        verified = _cloudbase_auth_request("verification/verify", {
+            "verification_id": verification_id,
+            "verification_code": code,
+        })
+        verification_token = str(verified.get("verification_token") or "").strip()
+        if not verification_token:
+            raise ApiError(HTTPStatus.BAD_GATEWAY, "CloudBase did not return a verification token")
+        if bool(challenge.get("is_user")):
+            auth_data = _cloudbase_auth_request("signin", {
+                "verification_token": verification_token,
+            })
+        else:
+            auth_data = _cloudbase_auth_request("signup", {
+                "phone_number": challenge_phone,
+                "verification_token": verification_token,
+                "name": challenge_phone.replace("+86 ", ""),
+            })
+        access_token = str(auth_data.get("access_token") or auth_data.get("accessToken") or auth_data.get("id_token") or auth_data.get("idToken") or "").strip()
+        token_payload = _jwt_payload_unverified(access_token)
+        provider_user_id = str(
+            auth_data.get("user_id")
+            or auth_data.get("uid")
+            or token_payload.get("sub")
+            or token_payload.get("uid")
+            or token_payload.get("user_id")
+            or ""
+        ).strip()
+        email = str(auth_data.get("email") or token_payload.get("email") or "").strip().lower()
+        phone_value = _normalize_phone(str(auth_data.get("phone_number") or auth_data.get("phone") or token_payload.get("phone_number") or token_payload.get("phone") or challenge_phone))
+        identities = store.setdefault("auth_identities", {})
+        identity_key = f"cloudbase:{provider_user_id}" if provider_user_id else ""
+        identity = identities.get(identity_key) if identity_key and isinstance(identities.get(identity_key), dict) else None
+        user_id = str((identity or {}).get("internal_user_id") or "")
+        if not user_id:
+            user_id = _find_user_id_by_phone(store, phone_value)
+        if not user_id:
+            user_id = _find_user_id_by_email(store, email)
+        if not user_id:
+            fallback_email = email or (f"{provider_user_id}@cloudbase.local" if provider_user_id else f"{phone_value.replace(' ', '')}@phone.cloudbase.local")
+            user_id = _create_internal_user(store, fallback_email, str(challenge.get("referral_code") or ""))
+        user = store.setdefault("users", {}).get(user_id)
+        if not isinstance(user, dict):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "User not found")
+        if email and not user.get("email"):
+            user["email"] = email
+        if phone_value:
+            user["phone"] = phone_value
+        user["auth_provider"] = "cloudbase"
+        user["last_auth_at"] = _now_like()
+        store["users"][user_id] = user
+        if identity_key:
+            identities[identity_key] = {
+                "provider": "cloudbase",
+                "provider_user_id": provider_user_id,
+                "email": email or user.get("email") or "",
+                "phone": phone_value,
+                "internal_user_id": user_id,
+                "updated_at": _now_like(),
+                "created_at": (identity or {}).get("created_at") or _now_like(),
+            }
+        challenges.pop(challenge_id, None)
+        response = _create_session_for_user_id(store, user_id)
+        response["cloudbase_session"] = auth_data
+        _txn.commit()
+    return response
+
+
+def _bind_referral_on_signup(store: dict[str, Any], user: dict[str, Any], referral_code: str) -> None:
+    _ensure_referral_code(store, user)
+    referrer_id, referrer = _user_by_referral_code(store, referral_code)
+    user_id = str(user.get("id") or "")
+    if not referrer_id or referrer_id == user_id or not isinstance(referrer, dict):
+        return
+    user["referred_by"] = referrer_id
+    user["referral_status"] = "registered"
+    _grant_bonus_credits(
+        store,
+        user_id,
+        _limit_int("PPT_MASTER_REFERRAL_SIGNUP_BONUS_CREDITS", 30),
+        "referral_signup_bonus",
+        {"event_key": f"referral_signup:{user_id}", "referrer_user_id": referrer_id},
+    )
+    store.setdefault("referral_events", []).append({
+        "type": "referral.registered",
+        "referrer_user_id": referrer_id,
+        "referred_user_id": user_id,
+        "referral_code": referral_code,
+        "created_at": _now_like(),
+    })
+
+
+def _auth_logout_response(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    token = _session_token(handler)
+    if not token:
+        return {"ok": True, "logged_out": False}
+    with _auth_store_txn(handler.jobs_dir) as _txn:
+        store = _txn.store
+        existed = token in store.get("sessions", {})
+        store["sessions"].pop(token, None)
+        _txn.commit()
+    return {"ok": True, "logged_out": existed}
+
+
+def _now_like() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+
+
+def _membership_response(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+    public = _public_user(user, handler.jobs_dir)
+    team = _team_for_user(store, str(user.get("id") or ""))
+    return {"authenticated": True, "user": public, "plan": public["plan"], "quota": public["quota"], "credits": public["credits"], "team": team, "billing": _billing_config(handler)}
+
+
+def _optional_membership_response(handler: BaseHTTPRequestHandler) -> dict[str, Any] | None:
+    user, _store = _current_user(handler)
+    return _membership_response(handler) if user else None
+
+
+def _profile_response(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    user, _store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+    public = _public_user(user, handler.jobs_dir)
+    return {
+        "ok": True,
+        "profile": {
+            "display_name": public["display_name"],
+            "avatar_url": public["avatar_url"],
+            "email": public["email"] or "",
+            "phone": public["phone"] or "",
+        },
+        "user": public,
+        "membership": _membership_response(handler),
+    }
+
+
+def _profile_update_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+    if "display_name" in payload:
+        display_name = _clean_display_name(str(payload.get("display_name") or ""))
+        if not display_name:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Display name cannot be empty")
+        user["display_name"] = display_name
+        user["name"] = display_name
+    if "avatar_data_url" in payload:
+        _save_avatar_data_url(handler.jobs_dir, user, str(payload.get("avatar_data_url") or ""))
+    store.setdefault("users", {})[str(user["id"])] = user
+    _write_auth_store(handler.jobs_dir, store)
+    return _profile_response(handler)
+
+
+def _membership_plan_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before changing membership")
+    plan = str(payload.get("plan") or "").strip().lower()
+    if plan not in {"free", "plus", "pro", "team"}:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "plan must be free, plus, pro, or team")
+    user["plan"] = plan
+    user["quota"] = _normalized_quota(user)
+    if plan == "team":
+        _ensure_team_for_user(store, user)
+    store["users"][str(user["id"])] = user
+    _write_auth_store(handler.jobs_dir, store)
+    return _membership_response(handler)
+
+
+def _team_for_user(store: dict[str, Any], user_id: str) -> dict[str, Any] | None:
+    for team in (store.get("teams") or {}).values():
+        if not isinstance(team, dict):
+            continue
+        if str(team.get("owner_user_id") or "") == user_id:
+            return _public_team(team)
+        for member in team.get("members") or []:
+            if isinstance(member, dict) and str(member.get("user_id") or "") == user_id and member.get("status") == "active":
+                return _public_team(team)
+    return None
+
+
+def _public_team(team: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "team_id": team.get("id"),
+        "name": team.get("name") or "PPT Master Team",
+        "owner_user_id": team.get("owner_user_id"),
+        "members": [
+            {
+                "email": member.get("email"),
+                "user_id": member.get("user_id") or "",
+                "role": member.get("role") or "member",
+                "status": member.get("status") or "invited",
+                "invited_at": member.get("invited_at") or "",
+                "joined_at": member.get("joined_at") or "",
+            }
+            for member in team.get("members") or []
+            if isinstance(member, dict)
+        ],
+    }
+
+
+def _ensure_team_for_user(store: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
+    user_id = str(user.get("id") or "")
+    existing = _team_for_user(store, user_id)
+    if existing and str(existing.get("owner_user_id") or "") == user_id:
+        user["team_id"] = existing.get("team_id") or ""
+        return (store.get("teams") or {}).get(str(user["team_id"])) or existing
+    team_id = str(user.get("team_id") or "") or f"team_{uuid.uuid4().hex[:12]}"
+    team = {
+        "id": team_id,
+        "name": f"{user.get('email', 'PPT Master')} Team",
+        "owner_user_id": user_id,
+        "created_at": _now_like(),
+        "members": [
+            {
+                "email": user.get("email"),
+                "user_id": user_id,
+                "role": "owner",
+                "status": "active",
+                "joined_at": _now_like(),
+            }
+        ],
+    }
+    store.setdefault("teams", {})[team_id] = team
+    user["team_id"] = team_id
+    return team
+
+
+def _require_team_owner(handler: BaseHTTPRequestHandler) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before managing a team")
+    if str(user.get("plan") or "free").lower() != "team":
+        raise ApiError(HTTPStatus.PAYMENT_REQUIRED, "Team management requires the Team plan")
+    team = _ensure_team_for_user(store, user)
+    if str(team.get("owner_user_id") or "") != str(user.get("id") or ""):
+        raise ApiError(HTTPStatus.FORBIDDEN, "Only the team owner can manage members")
+    store["users"][str(user["id"])] = user
+    return user, store, team
+
+
+def _team_response(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before viewing team")
+    if str(user.get("plan") or "free").lower() == "team":
+        team = _ensure_team_for_user(store, user)
+        store["users"][str(user["id"])] = user
+        _write_auth_store(handler.jobs_dir, store)
+        return {"team": _public_team(team), "membership": _membership_response(handler)}
+    return {"team": _team_for_user(store, str(user.get("id") or "")), "membership": _membership_response(handler)}
+
+
+def _team_invite_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    owner, store, team = _require_team_owner(handler)
+    email = str(payload.get("email") or "").strip().lower()
+    role = str(payload.get("role") or "member").strip().lower()
+    if not email or "@" not in email:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Valid invite email is required")
+    if role not in {"member", "admin"}:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "role must be member or admin")
+    existing_user_id = next((uid for uid, user in (store.get("users") or {}).items() if str(user.get("email") or "").lower() == email), "")
+    invite_token = secrets.token_urlsafe(24)
+    accept_url = f"{handler.frontend_base_url.rstrip('/')}/cloud-generator.html?team_invite={urllib.parse.quote(invite_token)}"
+    members = team.setdefault("members", [])
+    for member in members:
+        if isinstance(member, dict) and str(member.get("email") or "").lower() == email:
+            member.update({
+                "user_id": existing_user_id or member.get("user_id") or "",
+                "role": role,
+                "status": "active" if existing_user_id else "invited",
+                "invite_token": invite_token if not existing_user_id else "",
+                "accept_url": accept_url if not existing_user_id else "",
+                "updated_at": _now_like(),
+            })
+            break
+    else:
+        members.append({
+            "email": email,
+            "user_id": existing_user_id,
+            "role": role,
+            "status": "active" if existing_user_id else "invited",
+            "invite_token": invite_token if not existing_user_id else "",
+            "accept_url": accept_url if not existing_user_id else "",
+            "invited_at": _now_like(),
+            "joined_at": _now_like() if existing_user_id else "",
+        })
+    if existing_user_id and existing_user_id in store.get("users", {}):
+        store["users"][existing_user_id]["team_id"] = team["id"]
+    store["teams"][str(team["id"])] = team
+    if not existing_user_id:
+        _send_team_invite_email(
+            store=store,
+            to_email=email,
+            owner_email=str(owner.get("email") or ""),
+            team_name=str(team.get("name") or "PPT Master Team"),
+            accept_url=accept_url,
+        )
+    _write_auth_store(handler.jobs_dir, store)
+    return {"team": _public_team(team), "invite_delivery": _latest_invite_delivery(store, email)}
+
+
+def _latest_invite_delivery(store: dict[str, Any], email: str) -> dict[str, Any]:
+    for item in reversed(store.get("email_outbox") or []):
+        if isinstance(item, dict) and str(item.get("to") or "").lower() == email.lower():
+            return {
+                "status": item.get("status") or "queued",
+                "provider": item.get("provider") or "outbox",
+                "created_at": item.get("created_at") or "",
+            }
+    return {"status": "skipped", "provider": "none", "created_at": ""}
+
+
+def _send_team_invite_email(
+    *,
+    store: dict[str, Any],
+    to_email: str,
+    owner_email: str,
+    team_name: str,
+    accept_url: str,
+) -> None:
+    subject = f"You're invited to {team_name} on PPT Master"
+    body = (
+        f"{owner_email or 'A teammate'} invited you to join {team_name} on PPT Master.\n\n"
+        f"Accept the invitation:\n{accept_url}\n\n"
+        "If you were not expecting this invitation, you can ignore this email."
+    )
+    delivery = {
+        "type": "team_invite",
+        "to": to_email,
+        "subject": subject,
+        "body": body,
+        "accept_url": accept_url,
+        "provider": "outbox",
+        "status": "queued",
+        "created_at": _now_like(),
+    }
+    smtp_host = os.environ.get("PPT_MASTER_SMTP_HOST", "").strip()
+    if smtp_host:
+        delivery["provider"] = "smtp"
+        try:
+            _send_smtp_mail(to_email=to_email, subject=subject, body=body)
+            delivery["status"] = "sent"
+            delivery["sent_at"] = _now_like()
+        except Exception as exc:
+            delivery["status"] = "failed"
+            delivery["error"] = redact_secrets(str(exc))
+    store.setdefault("email_outbox", []).append(delivery)
+
+
+def _send_smtp_mail(*, to_email: str, subject: str, body: str) -> None:
+    host = os.environ.get("PPT_MASTER_SMTP_HOST", "").strip()
+    port = int(os.environ.get("PPT_MASTER_SMTP_PORT", "465") or 465)
+    username = os.environ.get("PPT_MASTER_SMTP_USERNAME", "").strip()
+    password = os.environ.get("PPT_MASTER_SMTP_PASSWORD", "").strip()
+    sender = os.environ.get("PPT_MASTER_SMTP_FROM", username or "no-reply@pptmaster.local").strip()
+    use_ssl = os.environ.get("PPT_MASTER_SMTP_SSL", "1") != "0"
+    use_starttls = os.environ.get("PPT_MASTER_SMTP_STARTTLS", "0") == "1"
+    message = (
+        f"From: {sender}\r\n"
+        f"To: {to_email}\r\n"
+        f"Subject: {subject}\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n"
+        "\r\n"
+        f"{body}"
+    )
+    client_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    with client_class(host, port, timeout=30) as client:
+        if use_starttls and not use_ssl:
+            client.starttls()
+        if username and password:
+            client.login(username, password)
+        client.sendmail(sender, [to_email], message.encode("utf-8"))
+
+
+def _team_remove_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    _user, store, team = _require_team_owner(handler)
+    email = str(payload.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Valid member email is required")
+    owner_email = next(
+        (user.get("email") for user in (store.get("users") or {}).values() if str(user.get("id") or "") == str(team.get("owner_user_id") or "")),
+        "",
+    )
+    if email == str(owner_email or "").lower():
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Team owner cannot be removed")
+    team["members"] = [
+        member for member in team.get("members") or []
+        if not (isinstance(member, dict) and str(member.get("email") or "").lower() == email)
+    ]
+    for user in (store.get("users") or {}).values():
+        if isinstance(user, dict) and str(user.get("email") or "").lower() == email and user.get("team_id") == team.get("id"):
+            user["team_id"] = ""
+    store["teams"][str(team["id"])] = team
+    _write_auth_store(handler.jobs_dir, store)
+    return {"team": _public_team(team)}
+
+
+def _plan_price_cents(plan: str, currency: str = "USD") -> int:
+    return _plan_currency_price_cents(plan, currency)
+
+
+def _payments_enabled() -> bool:
+    return os.environ.get("PPT_MASTER_PAYMENT_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _apply_plan_to_user(store: dict[str, Any], user_id: str, plan: str) -> None:
+    user = (store.get("users") or {}).get(user_id)
+    if not isinstance(user, dict):
+        raise ApiError(HTTPStatus.NOT_FOUND, "Billing user not found")
+    user["plan"] = plan
+    user["quota"] = _normalized_quota(user)
+    if plan == "team":
+        _ensure_team_for_user(store, user)
+    store["users"][user_id] = user
+
+
+def _billing_checkout_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    if not _payments_enabled():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Membership checkout is temporarily disabled")
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before checkout")
+    plan = str(payload.get("plan") or "").strip().lower()
+    if plan not in {"free", "plus", "pro", "team"}:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "plan must be free, plus, pro, or team")
+    billing = _billing_config(handler, payload)
+    explicit_provider = str(payload.get("provider") or payload.get("payment_provider") or "").strip().lower()
+    provider = explicit_provider or billing["payment_provider"]
+    auto_complete = payload.get("auto_complete", os.environ.get("PPT_MASTER_BILLING_AUTO_COMPLETE", "1") != "0")
+    if auto_complete and not explicit_provider:
+        provider = "local"
+    checkout_id = f"checkout_{uuid.uuid4().hex[:12]}"
+    checkout = {
+        "id": checkout_id,
+        "user_id": user["id"],
+        "email": user.get("email"),
+        "plan": plan,
+        "amount_cents": _plan_price_cents(plan, billing["currency"]),
+        "currency": billing["currency"],
+        "status": "pending",
+        "provider": provider,
+        "region": billing["region"],
+        "payment_provider": provider,
+        "created_at": _now_like(),
+    }
+    if provider in {"alipay", "alipay_wechat"}:
+        provider = "alipay"
+        checkout["provider"] = provider
+        checkout["payment_provider"] = provider
+        checkout["payment_method"] = "alipay"
+        checkout["payment_skill"] = "alipay-payment-skill"
+        checkout["out_trade_no"] = checkout_id
+        checkout["total_amount"] = _yuan_from_cents(int(checkout["amount_cents"]))
+        checkout["payment_gateway"] = "alipay.trade.page.pay"
+    if provider in {"aggregator", "aggregate", "payjs", "epay", "xunhupay"}:
+        provider = "aggregator"
+        checkout["provider"] = provider
+        checkout["payment_provider"] = provider
+        checkout["payment_method"] = "alipay"
+        checkout["out_trade_no"] = checkout_id
+        checkout["total_amount"] = _yuan_from_cents(int(checkout["amount_cents"]))
+        checkout["payment_gateway"] = "aggregator"
+    if provider == "paddle":
+        checkout["provider"] = provider
+        checkout["payment_provider"] = provider
+        checkout["payment_gateway"] = "paddle"
+        checkout["provider_checkout_id"] = str(payload.get("provider_checkout_id") or checkout_id)
+    if provider != "local":
+        auto_complete = False
+        external_id = str(payload.get("provider_checkout_id") or "").strip()
+        if external_id:
+            checkout["provider_checkout_id"] = external_id
+    if auto_complete:
+        checkout["status"] = "completed"
+        checkout["completed_at"] = _now_like()
+        _apply_plan_to_user(store, str(user["id"]), plan)
+    store["checkouts"][checkout_id] = checkout
+    store["billing_events"].append({
+        "type": "checkout.completed" if checkout["status"] == "completed" else "checkout.created",
+        "checkout_id": checkout_id,
+        "user_id": user["id"],
+        "plan": plan,
+        "created_at": _now_like(),
+    })
+    _write_auth_store(handler.jobs_dir, store)
+    checkout_url = _checkout_url(handler, checkout)
+    if provider != "local" and not checkout_url:
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, f"{provider} checkout is not configured")
+    return {
+        "checkout": checkout,
+        "checkout_url": checkout_url,
+        "billing": billing,
+        "membership": _membership_response(handler),
+    }
+
+
+def _checkout_url(handler: BaseHTTPRequestHandler, checkout: dict[str, Any]) -> str:
+    provider = str(checkout.get("provider") or "").strip().lower()
+    template = ""
+    if provider == "alipay":
+        alipay_url = _alipay_checkout_url(handler, checkout)
+        if alipay_url:
+            return alipay_url
+        template = os.environ.get("PPT_MASTER_ALIPAY_CHECKOUT_URL_TEMPLATE", "").strip()
+    if provider == "aggregator":
+        ypay_url = _ypay_checkout_url(handler, checkout)
+        if ypay_url:
+            return ypay_url
+        template = os.environ.get("PPT_MASTER_AGGREGATOR_CHECKOUT_URL_TEMPLATE", "").strip()
+    if provider == "paddle":
+        template = os.environ.get("PPT_MASTER_PADDLE_CHECKOUT_URL_TEMPLATE", "").strip()
+    template = template or os.environ.get("PPT_MASTER_PAYMENT_CHECKOUT_URL_TEMPLATE", "").strip()
+    if not template:
+        return f"/billing/mock-checkout/{checkout.get('id')}"
+    success_url = f"{handler.frontend_base_url.rstrip('/')}/cloud-generator.html?billing=success&checkout_id={checkout.get('id')}"
+    cancel_url = f"{handler.frontend_base_url.rstrip('/')}/cloud-generator.html?billing=cancelled&checkout_id={checkout.get('id')}"
+    notify_url = os.environ.get("PPT_MASTER_AGGREGATOR_NOTIFY_URL", "").strip() or "https://api.aigcstory.site/billing/webhook"
+    values = {
+        "checkout_id": str(checkout.get("id") or ""),
+        "out_trade_no": str(checkout.get("out_trade_no") or checkout.get("id") or ""),
+        "provider_checkout_id": str(checkout.get("provider_checkout_id") or ""),
+        "provider": str(checkout.get("provider") or ""),
+        "plan": str(checkout.get("plan") or ""),
+        "email": str(checkout.get("email") or ""),
+        "customer_email": str(checkout.get("email") or ""),
+        "amount_cents": str(checkout.get("amount_cents") or ""),
+        "amount_yuan": _yuan_from_cents(int(checkout.get("amount_cents") or 0)),
+        "total_amount": str(checkout.get("total_amount") or _yuan_from_cents(int(checkout.get("amount_cents") or 0))),
+        "currency": str(checkout.get("currency") or "USD"),
+        "amount_decimal": f"{max(0, int(checkout.get('amount_cents') or 0)) / 100:.2f}",
+        "subject": f"PPT Master {str(checkout.get('plan') or '').upper()}",
+        "body": f"PPT Master membership plan: {checkout.get('plan')}",
+        "notify_url": notify_url,
+        "return_url": success_url,
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+    }
+    return template.format(**{key: urllib.parse.quote(value, safe=":/?&=%") for key, value in values.items()})
+
+
+def _billing_webhook_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    if not _payments_enabled():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Payment callbacks are temporarily disabled")
+    secret = os.environ.get("PPT_MASTER_BILLING_WEBHOOK_SECRET", "").strip()
+    hmac_secret = os.environ.get("PPT_MASTER_BILLING_WEBHOOK_HMAC_SECRET", "").strip()
+    if not secret and not hmac_secret:
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Billing webhook secret is not configured")
+    if secret and str(payload.get("secret") or "") != secret:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid billing webhook secret")
+    if hmac_secret:
+        signature = str(payload.get("signature") or "").strip()
+        signed_payload = str(payload.get("signed_payload") or "").strip()
+        expected = hmac.new(hmac_secret.encode("utf-8"), signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not signature or not hmac.compare_digest(signature, expected):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid billing webhook signature")
+    checkout_id = str(payload.get("checkout_id") or payload.get("id") or "").strip()
+    if not checkout_id:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "checkout_id is required")
+    with _auth_store_txn(handler.jobs_dir) as _txn:
+        store = _txn.store
+        checkout = (store.get("checkouts") or {}).get(checkout_id)
+        provider_checkout_id = str(payload.get("provider_checkout_id") or "").strip()
+        if not isinstance(checkout, dict) and provider_checkout_id:
+            checkout = next(
+                (
+                    item
+                    for item in (store.get("checkouts") or {}).values()
+                    if isinstance(item, dict) and str(item.get("provider_checkout_id") or "") == provider_checkout_id
+                ),
+                None,
+            )
+            checkout_id = str((checkout or {}).get("id") or checkout_id)
+        if not isinstance(checkout, dict):
+            raise ApiError(HTTPStatus.NOT_FOUND, f"Checkout not found: {checkout_id}")
+        provider_event_id = str(
+            payload.get("provider_event_id")
+            or payload.get("event_id")
+            or payload.get("trade_no")
+            or ""
+        ).strip()
+        if provider_event_id and any(
+            isinstance(item, dict) and item.get("provider_event_id") == provider_event_id
+            for item in store.get("billing_events", [])
+        ):
+            return {"checkout": checkout, "duplicate": True}
+        status = str(payload.get("status") or "completed").strip().lower()
+        if status not in {"completed", "cancelled", "failed", "refunded"}:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Unsupported billing status")
+        if status == "completed":
+            amount_candidates = [
+                payload.get("amount_cents"),
+                payload.get("total_fee"),
+                payload.get("amount"),
+                payload.get("total_amount"),
+                payload.get("money"),
+            ]
+            supplied_amount = next((value for value in amount_candidates if value not in (None, "")), None)
+            if supplied_amount is None:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Paid amount is required")
+            if payload.get("amount_cents") is not None or payload.get("total_fee") is not None:
+                paid_amount = int(float(str(supplied_amount)))
+            else:
+                paid_amount = _cents_from_yuan(str(supplied_amount))
+            if paid_amount != int(checkout.get("amount_cents") or 0):
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Paid amount mismatch")
+        checkout["status"] = status
+        checkout["updated_at"] = _now_like()
+        if provider_checkout_id:
+            checkout["provider_checkout_id"] = provider_checkout_id
+        if payload.get("provider_event_id"):
+            checkout["provider_event_id"] = str(payload.get("provider_event_id"))
+        if status == "completed":
+            checkout["completed_at"] = _now_like()
+            _apply_plan_to_user(store, str(checkout.get("user_id") or ""), str(checkout.get("plan") or "free"))
+        if status in {"cancelled", "failed", "refunded"}:
+            checkout[f"{status}_at"] = _now_like()
+        store["checkouts"][checkout_id] = checkout
+        store["billing_events"].append({
+            "type": f"checkout.{status}",
+            "checkout_id": checkout_id,
+            "user_id": checkout.get("user_id"),
+            "plan": checkout.get("plan"),
+            "provider_event_id": provider_event_id or f"billing:{checkout_id}:{status}:{_now_like()}",
+            "created_at": _now_like(),
+        })
+        _txn.commit()
+    return {"checkout": checkout}
+
+
+def _deep_get(data: dict[str, Any], path: list[str]) -> Any:
+    current: Any = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _paddle_webhook_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    if not _payments_enabled():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Payment callbacks are temporarily disabled")
+    secret = os.environ.get("PPT_MASTER_PADDLE_WEBHOOK_SECRET", "").strip()
+    if secret and str(payload.get("secret") or _deep_get(payload, ["data", "custom_data", "secret"]) or "") != secret:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid Paddle webhook secret")
+    event_type = str(payload.get("event_type") or payload.get("event") or payload.get("type") or "").strip().lower()
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    custom = data.get("custom_data") if isinstance(data.get("custom_data"), dict) else {}
+    checkout_id = str(
+        payload.get("checkout_id")
+        or custom.get("checkout_id")
+        or data.get("checkout_id")
+        or data.get("id")
+        or ""
+    ).strip()
+    provider_checkout_id = str(payload.get("provider_checkout_id") or data.get("id") or "").strip()
+    if "completed" in event_type or "paid" in event_type or "activated" in event_type:
+        status = "completed"
+    elif "refund" in event_type:
+        status = "refunded"
+    elif "cancel" in event_type:
+        status = "cancelled"
+    elif "fail" in event_type:
+        status = "failed"
+    else:
+        return {"ignored": True, "event_type": event_type}
+    return _billing_webhook_response(handler, {
+        "checkout_id": checkout_id,
+        "provider_checkout_id": provider_checkout_id,
+        "provider_event_id": str(payload.get("event_id") or payload.get("id") or data.get("id") or ""),
+        "status": status,
+    })
+
+
+def _alipay_notify_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> str:
+    if not _alipay_configured():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Alipay is not configured")
+    if not _alipay_verify(payload):
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid Alipay signature")
+    if str(payload.get("app_id") or "").strip() != os.environ.get("PPT_MASTER_ALIPAY_APP_ID", "").strip():
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid Alipay app_id")
+    trade_status = str(payload.get("trade_status") or "").strip()
+    if trade_status not in {"TRADE_SUCCESS", "TRADE_FINISHED"}:
+        return "success"
+    checkout_id = str(payload.get("out_trade_no") or "").strip()
+    if not checkout_id:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Missing out_trade_no")
+    with _auth_store_txn(handler.jobs_dir) as _txn:
+        store = _txn.store
+        checkout = (store.get("checkouts") or {}).get(checkout_id)
+        if not isinstance(checkout, dict):
+            raise ApiError(HTTPStatus.NOT_FOUND, f"Checkout not found: {checkout_id}")
+        expected_amount = int(checkout.get("amount_cents") or 0)
+        paid_amount = _cents_from_yuan(str(payload.get("total_amount") or payload.get("receipt_amount") or "0"))
+        if paid_amount != expected_amount:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Alipay amount mismatch")
+        seller_id = os.environ.get("PPT_MASTER_ALIPAY_SELLER_ID", "").strip()
+        if seller_id and str(payload.get("seller_id") or "").strip() != seller_id:
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid Alipay seller_id")
+        if checkout.get("status") != "completed":
+            checkout["status"] = "completed"
+            checkout["completed_at"] = _now_like()
+            checkout["paid_at"] = _now_like()
+            _apply_plan_to_user(store, str(checkout.get("user_id") or ""), str(checkout.get("plan") or "free"))
+        checkout["updated_at"] = _now_like()
+        checkout["provider"] = "alipay"
+        checkout["payment_provider"] = "alipay"
+        checkout["provider_checkout_id"] = str(payload.get("trade_no") or checkout.get("provider_checkout_id") or "")
+        checkout["trade_no"] = str(payload.get("trade_no") or "")
+        checkout["buyer_id"] = str(payload.get("buyer_id") or "")
+        checkout["trade_status"] = trade_status
+        checkout["total_amount"] = str(payload.get("total_amount") or checkout.get("total_amount") or "")
+        store["checkouts"][checkout_id] = checkout
+        event_id = str(payload.get("notify_id") or payload.get("trade_no") or f"alipay:{checkout_id}:{trade_status}")
+        if not any(isinstance(item, dict) and item.get("provider_event_id") == event_id for item in store.get("billing_events", [])):
+            store["billing_events"].append({
+                "type": "checkout.completed",
+                "checkout_id": checkout_id,
+                "user_id": checkout.get("user_id"),
+                "plan": checkout.get("plan"),
+                "provider": "alipay",
+                "provider_event_id": event_id,
+                "created_at": _now_like(),
+            })
+        _txn.commit()
+    return "success"
+
+
+def _ypay_notify_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> str:
+    if not _ypay_configured():
+        raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "YPay is not configured")
+    if not _ypay_verify(payload):
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid YPay signature")
+    if str(payload.get("pid") or "").strip() != os.environ.get("PPT_MASTER_YPAY_PID", "").strip():
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Invalid YPay pid")
+    trade_status = str(payload.get("trade_status") or "").strip()
+    if trade_status != "TRADE_SUCCESS":
+        return "success"
+    checkout_id = str(payload.get("out_trade_no") or payload.get("param") or "").strip()
+    if not checkout_id:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Missing out_trade_no")
+    with _auth_store_txn(handler.jobs_dir) as _txn:
+        store = _txn.store
+        checkout = (store.get("checkouts") or {}).get(checkout_id)
+        if not isinstance(checkout, dict):
+            raise ApiError(HTTPStatus.NOT_FOUND, f"Checkout not found: {checkout_id}")
+        expected_amount = int(checkout.get("amount_cents") or 0)
+        paid_amount = _cents_from_yuan(str(payload.get("money") or "0"))
+        if paid_amount != expected_amount:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "YPay amount mismatch")
+        if checkout.get("status") != "completed":
+            checkout["status"] = "completed"
+            checkout["completed_at"] = _now_like()
+            checkout["paid_at"] = _now_like()
+            _apply_plan_to_user(store, str(checkout.get("user_id") or ""), str(checkout.get("plan") or "free"))
+        checkout["updated_at"] = _now_like()
+        checkout["provider"] = "aggregator"
+        checkout["payment_provider"] = "aggregator"
+        checkout["payment_method"] = str(payload.get("type") or checkout.get("payment_method") or "")
+        checkout["provider_checkout_id"] = str(payload.get("trade_no") or checkout.get("provider_checkout_id") or "")
+        checkout["trade_no"] = str(payload.get("trade_no") or "")
+        checkout["orderid_wx_al"] = str(payload.get("orderid_wx_al") or "")
+        checkout["trade_status"] = trade_status
+        checkout["total_amount"] = str(payload.get("money") or checkout.get("total_amount") or "")
+        store["checkouts"][checkout_id] = checkout
+        event_id = str(payload.get("trade_no") or payload.get("orderid_wx_al") or f"ypay:{checkout_id}:{trade_status}")
+        if not any(isinstance(item, dict) and item.get("provider_event_id") == event_id for item in store.get("billing_events", [])):
+            store["billing_events"].append({
+                "type": "checkout.completed",
+                "checkout_id": checkout_id,
+                "user_id": checkout.get("user_id"),
+                "plan": checkout.get("plan"),
+                "provider": "ypay",
+                "provider_event_id": event_id,
+                "created_at": _now_like(),
+            })
+        _txn.commit()
+    return "success"
+
+
+def _usage_response(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    user, _store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before viewing usage")
+    owner_user_id = str(user.get("id") or "")
+    tasks = _tasks_response(handler.jobs_dir, handler.store, owner_user_id=owner_user_id).get("tasks") or []
+    totals: dict[str, Any] = {
+        "task_count": len(tasks),
+        "completed": 0,
+        "failed": 0,
+        "page_attempts": 0,
+        "pages_generated": 0,
+        "pptx_size_bytes": 0,
+        "image_asset_count": 0,
+        "audio_asset_count": 0,
+        "llm_call_count": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "model_names": {},
+        "llm_usage_by_model": {},
+        "llm_usage_by_profile": {},
+        "estimated_cost_cents": 0,
+    }
+    for task in tasks:
+        status = str(task.get("status") or "")
+        if status == "completed":
+            totals["completed"] += 1
+        if status == "failed":
+            totals["failed"] += 1
+        metrics = task.get("metrics") if isinstance(task.get("metrics"), dict) else {}
+        totals["page_attempts"] += int(metrics.get("page_attempts") or 0)
+        totals["pages_generated"] += int(metrics.get("page_count_generated") or 0)
+        totals["pptx_size_bytes"] += int(metrics.get("pptx_size_bytes") or 0)
+        totals["image_asset_count"] += int(metrics.get("image_asset_count") or 0)
+        totals["audio_asset_count"] += int(metrics.get("audio_asset_count") or 0)
+        totals["llm_call_count"] += int(metrics.get("llm_call_count") or 0)
+        totals["prompt_tokens"] += int(metrics.get("prompt_tokens") or 0)
+        totals["completion_tokens"] += int(metrics.get("completion_tokens") or 0)
+        totals["total_tokens"] += int(metrics.get("total_tokens") or 0)
+        totals["estimated_cost_cents"] += float(metrics.get("estimated_cost_cents") or 0)
+        for name, count in (metrics.get("model_names") or {}).items():
+            totals["model_names"][name] = totals["model_names"].get(name, 0) + int(count or 0)
+        _merge_usage_breakdown(totals["llm_usage_by_model"], metrics.get("llm_usage_by_model") or {})
+        _merge_usage_breakdown(totals["llm_usage_by_profile"], metrics.get("llm_usage_by_profile") or {})
+    per_attempt_cents = float(os.environ.get("PPT_MASTER_COST_PER_PAGE_ATTEMPT_CENTS", "0") or 0)
+    if not totals["estimated_cost_cents"]:
+        per_image_cents = float(os.environ.get("PPT_MASTER_COST_PER_IMAGE_CENTS", "0") or 0)
+        per_audio_cents = float(os.environ.get("PPT_MASTER_COST_PER_AUDIO_CENTS", "0") or 0)
+        totals["estimated_cost_cents"] = (
+            totals["page_attempts"] * per_attempt_cents
+            + totals["image_asset_count"] * per_image_cents
+            + totals["audio_asset_count"] * per_audio_cents
+            + totals["prompt_tokens"] / 1000 * float(os.environ.get("PPT_MASTER_COST_PER_1K_PROMPT_TOKENS_CENTS", "0") or 0)
+            + totals["completion_tokens"] / 1000 * float(os.environ.get("PPT_MASTER_COST_PER_1K_COMPLETION_TOKENS_CENTS", "0") or 0)
+            + totals["total_tokens"] / 1000 * float(os.environ.get("PPT_MASTER_COST_PER_1K_TOKENS_CENTS", "0") or 0)
+        )
+    totals["estimated_cost_cents"] = round(float(totals["estimated_cost_cents"] or 0), 4)
+    return {
+        "user_id": owner_user_id,
+        "membership": _membership_response(handler),
+        "usage": totals,
+        "tasks": tasks[:20],
+    }
+
+
+def _merge_usage_breakdown(target: dict[str, Any], source: dict[str, Any]) -> None:
+    if not isinstance(source, dict):
+        return
+    for key, value in source.items():
+        if not isinstance(value, dict):
+            continue
+        bucket = target.setdefault(str(key), {})
+        for metric in ("calls", "prompt_tokens", "completion_tokens", "total_tokens"):
+            bucket[metric] = int(bucket.get(metric) or 0) + int(value.get(metric) or 0)
+
+
+def _provider_status_response() -> dict[str, Any]:
+    llm_provider = os.environ.get("LLM_PROVIDER", os.environ.get("CLOUD_GENERATOR_LLM_PROVIDER", "openai")).strip().lower()
+    if llm_provider in {"anthropic", "claude"}:
+        llm_provider = "anthropic"
+        llm_required_env = ["ANTHROPIC_API_KEY"]
+        llm_configured = bool(_any_env(llm_required_env))
+        llm_model = _public_first_env_value("ANTHROPIC_MODEL", "LLM_MODEL")
+        llm_base_url = _public_first_env_value("ANTHROPIC_BASE_URL", "LLM_BASE_URL")
+    else:
+        llm_provider = "openai"
+        llm_required_env = ["OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ARK_API_KEY", "LLM_API_KEY"]
+        llm_configured = bool(_any_env(llm_required_env))
+        llm_model = _public_first_env_value("OPENAI_MODEL", "LLM_MODEL")
+        llm_base_url = _public_first_env_value("OPENAI_BASE_URL", "LLM_BASE_URL")
+
+    image_backend = os.environ.get("IMAGE_BACKEND", "").strip().lower()
+    image_key_map = {
+        "openai": ["IMAGE_OPENAI_API_KEY", "OPENAI_API_KEY"],
+        "gemini": ["GEMINI_API_KEY"],
+        "minimax": ["MINIMAX_API_KEY"],
+        "qwen": ["QWEN_API_KEY", "DASHSCOPE_API_KEY"],
+        "zhipu": ["ZHIPU_API_KEY"],
+        "volcengine": ["VOLCENGINE_API_KEY"],
+        "modelscope": ["MODELSCOPE_API_KEY"],
+        "stability": ["STABILITY_API_KEY"],
+        "bfl": ["BFL_API_KEY"],
+        "ideogram": ["IDEOGRAM_API_KEY"],
+        "siliconflow": ["SILICONFLOW_API_KEY"],
+        "fal": ["FAL_KEY"],
+        "replicate": ["REPLICATE_API_TOKEN"],
+        "openrouter": ["OPENROUTER_API_KEY"],
+    }
+    image_keys = image_key_map.get(image_backend, [])
+    image_configured = bool(image_backend and _any_env(image_keys))
+    image_search_configured = bool(_any_env(["PEXELS_API_KEY", "PIXABAY_API_KEY"])) or os.environ.get("PPT_MASTER_IMAGE_SEARCH_FALLBACK", "1").strip().lower() not in {"0", "false", "no"}
+    audio_providers = {
+        "edge": {"configured": True, "required_env": [], "note": "edge-tts local/default backend"},
+        "elevenlabs": {"configured": bool(_any_env(["ELEVENLABS_API_KEY"])), "required_env": ["ELEVENLABS_API_KEY"]},
+        "minimax": {"configured": bool(_any_env(["MINIMAX_API_KEY"])), "required_env": ["MINIMAX_API_KEY"]},
+        "qwen": {"configured": bool(_any_env(["QWEN_API_KEY", "DASHSCOPE_API_KEY"])), "required_env": ["QWEN_API_KEY", "DASHSCOPE_API_KEY"]},
+        "cosyvoice": {"configured": bool(_any_env(["COSYVOICE_API_KEY", "DASHSCOPE_API_KEY"])), "required_env": ["COSYVOICE_API_KEY", "DASHSCOPE_API_KEY"]},
+    }
+    return {
+        "auth": {
+            "provider": os.environ.get("PPT_MASTER_AUTH_PROVIDER", "local").strip().lower() or "local",
+            "supabase_configured": _supabase_enabled(),
+            "supabase_url_configured": bool(os.environ.get("SUPABASE_URL", "").strip()),
+            "clerk_configured": _clerk_enabled(),
+            "clerk_issuer_configured": bool(_clerk_issuer() or os.environ.get("CLERK_JWKS_URL", "").strip()),
+            "cloudbase_configured": _cloudbase_enabled(),
+            "cloudbase_env_configured": bool(_cloudbase_env_id()),
+            "cloudbase_proxy_configured": _cloudbase_sms_proxy_enabled(),
+            "cloudbase_client_secret_configured": bool(_cloudbase_client_secret()),
+            "cloudbase_base_url": _public_first_env_value("CLOUDBASE_AUTH_BASE_URL", "TCB_AUTH_BASE_URL") or ("configured" if _cloudbase_env_id() else ""),
+            "required_env": ["PPT_MASTER_AUTH_PROVIDER", "SUPABASE_URL", "SUPABASE_JWT_SECRET", "CLOUDBASE_ENV_ID", "CLERK_JWKS_URL"],
+            "fallback": "local_session",
+        },
+        "llm": {
+            "provider": llm_provider,
+            "configured": llm_configured,
+            "required_env": llm_required_env,
+            "model": llm_model,
+            "base_url": llm_base_url,
+            "profiles": {
+                "brief": _public_first_env_value("LLM_MODEL_BRIEF", "LLM_BRIEF_MODEL") or llm_model,
+                "strategy": _public_first_env_value("LLM_MODEL_STRATEGY", "LLM_STRATEGY_MODEL") or llm_model,
+                "slide": _public_first_env_value("LLM_MODEL_SLIDE", "LLM_SLIDE_MODEL") or llm_model,
+                "slide_fallback": _public_first_env_value("LLM_MODEL_SLIDE_FALLBACK", "LLM_SLIDE_FALLBACK_MODEL") or llm_model,
+            },
+        },
+        "image": {
+            "backend": image_backend or "none",
+            "configured": image_configured,
+            "required_env": image_keys,
+            "model": (
+                _public_first_env_value("IMAGE_OPENAI_MODEL", "OPENAI_MODEL")
+                if image_backend == "openai"
+                else (_public_env_value(f"{image_backend.upper()}_MODEL") if image_backend else "")
+            ),
+            "base_url": _public_first_env_value("IMAGE_OPENAI_BASE_URL", "OPENAI_BASE_URL") if image_backend == "openai" else "",
+            "search_fallback": {
+                "enabled": os.environ.get("PPT_MASTER_IMAGE_SEARCH_FALLBACK", "1").strip().lower() not in {"0", "false", "no"},
+                "configured": image_search_configured,
+                "providers": {
+                    "openverse": True,
+                    "wikimedia": True,
+                    "pexels": bool(os.environ.get("PEXELS_API_KEY", "").strip()),
+                    "pixabay": bool(os.environ.get("PIXABAY_API_KEY", "").strip()),
+                },
+            },
+        },
+        "audio": {
+            "default_provider": os.environ.get("PPT_MASTER_AUDIO_PROVIDER", "edge").strip().lower() or "edge",
+            "providers": audio_providers,
+            "default_voice": os.environ.get("PPT_MASTER_AUDIO_VOICE", "").strip(),
+        },
+        "billing": {
+            "provider": os.environ.get("PPT_MASTER_PAYMENT_PROVIDER", "local").strip().lower() or "local",
+            "default_region": os.environ.get("PPT_MASTER_REGION", "auto").strip().lower() or "auto",
+            "default_currency": os.environ.get("PPT_MASTER_CURRENCY", "auto").strip().upper() or "auto",
+            "credit_plans": {
+                "free": _plan_limit("free"),
+                "plus": _plan_limit("plus"),
+                "pro": _plan_limit("pro"),
+                "team": _plan_limit("team"),
+            },
+            "plan_catalog": _plan_catalog(os.environ.get("PPT_MASTER_CURRENCY", "CNY" if os.environ.get("PPT_MASTER_REGION", "").strip().lower() == "cn" else "USD")),
+            "ypay_configured": _ypay_configured(),
+            "ypay_base_url": os.environ.get("PPT_MASTER_YPAY_BASE_URL", "https://pay.phpwc.com").strip().rstrip("/"),
+            "ypay_notify_url": os.environ.get("PPT_MASTER_YPAY_NOTIFY_URL", "").strip() or "https://api.aigcstory.site/billing/ypay/notify",
+            "hosted_checkout_configured": bool(
+                os.environ.get("PPT_MASTER_PAYMENT_CHECKOUT_URL_TEMPLATE", "").strip()
+                or os.environ.get("PPT_MASTER_ALIPAY_CHECKOUT_URL_TEMPLATE", "").strip()
+                or os.environ.get("PPT_MASTER_AGGREGATOR_CHECKOUT_URL_TEMPLATE", "").strip()
+                or _ypay_configured()
+            ),
+            "aggregator_configured": bool(os.environ.get("PPT_MASTER_AGGREGATOR_CHECKOUT_URL_TEMPLATE", "").strip() or _ypay_configured()),
+            "ypay_configured": _ypay_configured(),
+            "paddle_configured": _paddle_configured(),
+            "alipay_checkout_configured": bool(os.environ.get("PPT_MASTER_ALIPAY_CHECKOUT_URL_TEMPLATE", "").strip()),
+            "alipay_skill_available": bool(shutil.which("alipay-bot")),
+            "webhook_secret_configured": bool(os.environ.get("PPT_MASTER_BILLING_WEBHOOK_SECRET", "").strip()),
+            "webhook_hmac_configured": bool(os.environ.get("PPT_MASTER_BILLING_WEBHOOK_HMAC_SECRET", "").strip()),
+        },
+        "email": {
+            "provider": "smtp" if os.environ.get("PPT_MASTER_SMTP_HOST", "").strip() else "outbox",
+            "configured": bool(os.environ.get("PPT_MASTER_SMTP_HOST", "").strip()),
+            "required_env": [
+                "PPT_MASTER_SMTP_HOST",
+                "PPT_MASTER_SMTP_PORT",
+                "PPT_MASTER_SMTP_FROM",
+                "PPT_MASTER_SMTP_USERNAME",
+                "PPT_MASTER_SMTP_PASSWORD",
+            ],
+        },
+    }
+
+
+def _any_env(names: list[str]) -> bool:
+    return any(os.environ.get(name, "").strip() for name in names)
+
+
+def _public_env_value(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return ""
+    if any(marker in name.upper() for marker in ("KEY", "SECRET", "TOKEN", "PASSWORD")):
+        return "configured"
+    return value
+
+
+def _public_first_env_value(*names: str) -> str:
+    for name in names:
+        value = _public_env_value(name)
+        if value:
+            return value
+    return ""
+
+
+def _require_task_owner(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> None:
+    owner_user_id = str(payload.get("owner_user_id") or "")
+    if not owner_user_id:
+        return
+    user, _store = _current_user(handler)
+    if user and str(user.get("id") or "") == owner_user_id:
+        return
+    raise ApiError(HTTPStatus.FORBIDDEN, "You do not have access to this generation task")
+
+
+def _require_route_session_owner(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> None:
+    owner_user_id = str(payload.get("owner_user_id") or "")
+    if not owner_user_id:
+        return
+    user, _store = _current_user(handler)
+    if user and str(user.get("id") or "") == owner_user_id:
+        return
+    raise ApiError(HTTPStatus.FORBIDDEN, "You do not have access to this route session")
+
+
+def _public_route_session(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return route-session state without exposing server filesystem paths."""
+    public = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"owner_user_id", "session_dir", "source_pptx"}
+    }
+    public["artifacts"] = {
+        key: Path(str(value)).name
+        for key, value in (payload.get("artifacts") or {}).items()
+    }
+    return public
+
+
+def _route_authoring_file(session: dict[str, Any], filename: str) -> Path:
+    root = Path(str((session.get("artifacts") or {}).get("authoring_svg") or "")).resolve()
+    safe_name = Path(unquote(filename)).name
+    if not root.is_dir() or safe_name != unquote(filename) or Path(safe_name).suffix.lower() not in {".svg", ".json"}:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Authoring file not found")
+    candidate = (root / safe_name).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Authoring file not found") from exc
+    if not candidate.is_file():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Authoring file not found")
+    return candidate
+
+
+_AUTHORING_EDIT_ATTRIBUTES = frozenset({
+    "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity",
+    "opacity", "font-family", "font-size", "font-weight", "font-style",
+    "text-anchor", "letter-spacing", "x", "y", "dx", "dy", "width", "height", "transform",
+})
+_AUTHORING_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,199}$")
+
+
+def _edit_authoring_svg(session: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply a small, safe direct edit to one authoring-IR SVG element.
+
+    The authoring IR is intentionally edited instead of the lossless import
+    SVG. The mirror compiler can therefore preserve native payloads while
+    materializing the user's visual changes on publish.
+    """
+    if session.get("route") != "create_template":
+        raise ApiError(HTTPStatus.CONFLICT, "Authoring edits are only available for Create Template")
+    if session.get("status") != "awaiting_authoring":
+        raise ApiError(HTTPStatus.CONFLICT, "Template session is not in an authoring state")
+    filename = str(payload.get("file") or "").strip()
+    element_id = str(payload.get("element_id") or "").strip()
+    if not _AUTHORING_ID_RE.fullmatch(element_id):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid authoring element id")
+    file_path = _route_authoring_file(session, filename)
+    if file_path.suffix.lower() != ".svg":
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Authoring edits require an SVG file")
+    attrs = payload.get("attrs") if isinstance(payload.get("attrs"), dict) else {}
+    unknown = sorted(set(str(key) for key in attrs) - _AUTHORING_EDIT_ATTRIBUTES)
+    if unknown:
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"Unsupported authoring attributes: {', '.join(unknown)}")
+    normalized_attrs = {}
+    for key, value in attrs.items():
+        value = str(value).strip()
+        if len(value) > 200:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"Authoring attribute is too long: {key}")
+        if key == "transform" and (any(token in value.lower() for token in ("url", "javascript", "<", ">", "\"", "'")) or not re.fullmatch(r"[A-Za-z0-9+\-.,()\s]+", value)):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid authoring transform")
+        normalized_attrs[str(key)] = value
+    text_value = payload.get("text")
+    if text_value is not None:
+        if not isinstance(text_value, str) or len(text_value) > 4000:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid or too-long authoring text")
+    if not normalized_attrs and text_value is None:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Nothing to edit")
+    try:
+        tree = ET.parse(file_path)
+    except ET.ParseError as exc:
+        raise ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, f"Authoring SVG is invalid: {exc}") from exc
+    target = next((item for item in tree.getroot().iter() if item.get("id") == element_id), None)
+    if target is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Authoring element not found")
+    history_root = file_path.parent.parent / "authoring-history"
+    history_root.mkdir(parents=True, exist_ok=True)
+    history_file = history_root / f"{file_path.name}.{time.time_ns()}.{uuid.uuid4().hex}.svg"
+    shutil.copy2(file_path, history_file)
+    for key, value in normalized_attrs.items():
+        if value:
+            target.set(key, value)
+        else:
+            target.attrib.pop(key, None)
+    if text_value is not None:
+        text_target = next((item for item in target.iter() if item.tag.rsplit("}", 1)[-1] in {"text", "tspan"}), target)
+        text_target.text = text_value
+    temporary = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tree.write(temporary, encoding="UTF-8", xml_declaration=True)
+        os.replace(temporary, file_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "file": file_path.name,
+        "element_id": element_id,
+        "attrs": normalized_attrs,
+        "text": text_value,
+        "undo_available": True,
+    }
+
+
+def _undo_authoring_svg(session: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Restore the most recent direct edit for one authoring SVG file."""
+    if session.get("route") != "create_template" or session.get("status") != "awaiting_authoring":
+        raise ApiError(HTTPStatus.CONFLICT, "Template session is not in an authoring state")
+    file_path = _route_authoring_file(session, str(payload.get("file") or "").strip())
+    history_root = file_path.parent.parent / "authoring-history"
+    candidates = sorted(history_root.glob(f"{file_path.name}.*.svg"), key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    if not candidates:
+        raise ApiError(HTTPStatus.CONFLICT, "No authoring edit to undo")
+    snapshot = candidates[0]
+    temporary = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        shutil.copy2(snapshot, temporary)
+        os.replace(temporary, file_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+        snapshot.unlink(missing_ok=True)
+    return {"file": file_path.name, "undo_available": bool(candidates[1:])}
+
+
+def _authoring_history(session: dict[str, Any], filename: str) -> list[dict[str, Any]]:
+    file_path = _route_authoring_file(session, filename)
+    history_root = file_path.parent.parent / "authoring-history"
+    entries = []
+    for snapshot in sorted(history_root.glob(f"{file_path.name}.*.svg"), key=lambda path: path.stat().st_mtime_ns, reverse=True):
+        try:
+            stat = snapshot.stat()
+        except OSError:
+            continue
+        entries.append({
+            "snapshot": snapshot.name,
+            "created_at_epoch": stat.st_mtime,
+            "size_bytes": stat.st_size,
+        })
+    return entries[:50]
+
+
+def _restore_authoring_snapshot(session: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if session.get("route") != "create_template" or session.get("status") != "awaiting_authoring":
+        raise ApiError(HTTPStatus.CONFLICT, "Template session is not in an authoring state")
+    file_path = _route_authoring_file(session, str(payload.get("file") or "").strip())
+    snapshot_name = Path(str(payload.get("snapshot") or "")).name
+    history_root = file_path.parent.parent / "authoring-history"
+    candidates = {path.name: path for path in history_root.glob(f"{file_path.name}.*.svg")}
+    snapshot = candidates.get(snapshot_name)
+    if snapshot is None:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Authoring snapshot not found")
+    current_backup = history_root / f"{file_path.name}.{time.time_ns()}.{uuid.uuid4().hex}.svg"
+    history_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(file_path, current_backup)
+    temporary = file_path.with_name(f".{file_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        shutil.copy2(snapshot, temporary)
+        os.replace(temporary, file_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"file": file_path.name, "snapshot": snapshot.name, "history_count": len(_authoring_history(session, file_path.name))}
+
+
+def _require_postgres_task_owner(handler: BaseHTTPRequestHandler, task_id: str) -> None:
+    task = get_task(task_id)
+    if not task:
+        raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {task_id}")
+    _require_task_owner(handler, task)
+
+
+def _debit_quota(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> tuple[str, bool, int, str]:
+    user, store = _current_user(handler)
+    if not user:
+        if os.environ.get("PPT_MASTER_REQUIRE_AUTH") == "1":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before creating a generation task")
+        return "", False, 0, ""
+    plan = str(user.get("plan") or "free").lower()
+    quota = _normalized_quota(user)
+    limit = _plan_limit(plan) + int(quota.get("bonus") or 0)
+    used = int(quota.get("used") or 0)
+    breakdown = _generation_credit_breakdown(payload)
+    cost = int(breakdown.get("total") or 1)
+    if used + cost > limit:
+        raise ApiError(HTTPStatus.PAYMENT_REQUIRED, f"Quota exceeded for {plan} plan")
+    quota["used"] = used + cost
+    quota["unit"] = "credits"
+    quota["last_debit"] = {
+        "credits": cost,
+        "created_at": _now_like(),
+        "cost_model": breakdown.get("cost_model"),
+        "page_count": breakdown.get("page_count"),
+        "base": breakdown.get("base"),
+        "images": breakdown.get("images"),
+        "audio": breakdown.get("audio"),
+        "animations": breakdown.get("animations"),
+        "include_images": breakdown.get("include_images"),
+        "include_audio": breakdown.get("include_audio"),
+        "include_animations": breakdown.get("include_animations"),
+    }
+    user["quota"] = quota
+    store["users"][str(user["id"])] = user
+    _write_auth_store(handler.jobs_dir, store)
+    return str(user["id"]), True, cost, str(breakdown.get("cost_model") or "")
+
+
+def _route_session_credit_cost(session: dict[str, Any]) -> int:
+    """Bounded cost for native inspection/mutation sessions."""
+    route = str(session.get("route") or "")
+    pages = 1
+    confirmation = session.get("confirmation") if isinstance(session.get("confirmation"), dict) else {}
+    plan = confirmation.get("fill_plan") or confirmation.get("enhancement_plan") or {}
+    if isinstance(plan, dict):
+        for key in ("slide_count", "page_count", "slides"):
+            value = plan.get(key)
+            if isinstance(value, list):
+                pages = max(pages, len(value))
+            else:
+                try:
+                    pages = max(pages, int(value or 0))
+                except (TypeError, ValueError):
+                    pass
+    surcharge = {"create_template": 5, "fill_native_pptx": 8, "enhance_native_pptx": 10}.get(route, 8)
+    return max(5, min(200, surcharge + pages * 2))
+
+
+def _debit_route_session_quota(handler: BaseHTTPRequestHandler, session: dict[str, Any]) -> dict[str, Any]:
+    """Debit exactly once immediately before a native mutation/publish."""
+    if session.get("quota_debited"):
+        return session
+    user, _store = _current_user(handler)
+    if not user:
+        if os.environ.get("PPT_MASTER_REQUIRE_AUTH") == "1":
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before applying a native route")
+        return session
+    cost = _route_session_credit_cost(session)
+    user_id = str(user.get("id") or "")
+    event_key = f"route_session:{session['session_id']}:debit"
+    with _auth_store_txn(handler.jobs_dir) as txn:
+        fresh = (txn.store.get("users") or {}).get(user_id)
+        if not isinstance(fresh, dict):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Native route owner no longer exists")
+        quota = _normalized_quota(fresh)
+        limit = _plan_limit(str(fresh.get("plan") or "free").lower()) + int(quota.get("bonus") or 0)
+        used = int(quota.get("used") or 0)
+        ledger = _credit_ledger(txn.store)
+        existing = next((item for item in ledger if isinstance(item, dict) and item.get("event_key") == event_key), None)
+        if existing:
+            cost = int(existing.get("credits") or cost)
+        elif used + cost > limit:
+            raise ApiError(HTTPStatus.PAYMENT_REQUIRED, "Quota exceeded for native route")
+        else:
+            quota["used"] = used + cost
+            quota["unit"] = "credits"
+            quota["last_debit"] = {"credits": cost, "reason": "native_route", "session_id": session["session_id"], "created_at": _now_like()}
+            fresh["quota"] = quota
+            txn.store["users"][user_id] = fresh
+            ledger.append({"event_key": event_key, "user_id": user_id, "credits": cost, "reason": "native_route", "session_id": session["session_id"], "created_at": _now_like()})
+            txn.commit()
+    return update_route_session(handler.jobs_dir, str(session["session_id"]), {
+        "quota_debited": True,
+        "quota_debit_credits": cost,
+        "quota_credit_cost_model": "native_routes_v1",
+        "quota_refunded": False,
+    })
+
+
+def _refund_route_session_quota(handler: BaseHTTPRequestHandler, session: dict[str, Any]) -> dict[str, Any]:
+    if not session.get("quota_debited") or session.get("quota_refunded"):
+        return session
+    user_id = str(session.get("owner_user_id") or "")
+    credits = max(0, int(session.get("quota_debit_credits") or 0))
+    if not user_id or credits <= 0:
+        return session
+    event_key = f"route_session:{session['session_id']}:refund"
+    with _auth_store_txn(handler.jobs_dir) as txn:
+        user = (txn.store.get("users") or {}).get(user_id)
+        if not isinstance(user, dict):
+            return session
+        if not any(isinstance(item, dict) and item.get("event_key") == event_key for item in _credit_ledger(txn.store)):
+            quota = _normalized_quota(user)
+            quota["used"] = max(0, int(quota.get("used") or 0) - credits)
+            quota["unit"] = "credits"
+            quota["last_credit"] = {"credits": credits, "reason": "native_route_failed_refund", "session_id": session["session_id"], "created_at": _now_like()}
+            user["quota"] = quota
+            txn.store["users"][user_id] = user
+            _credit_ledger(txn.store).append({"event_key": event_key, "user_id": user_id, "credits": credits, "reason": "native_route_failed_refund", "session_id": session["session_id"], "created_at": _now_like()})
+            txn.commit()
+    return update_route_session(handler.jobs_dir, str(session["session_id"]), {"quota_refunded": True, "quota_refund_credits": credits})
+
+
+def _task_quota_debit_credits(payload: dict[str, Any]) -> int:
+    try:
+        value = int(payload.get("quota_debit_credits") or 0)
+        if value > 0:
+            return value
+    except Exception:
+        pass
+    brief_path = Path(str(payload.get("brief_path") or ""))
+    if brief_path.exists():
+        try:
+            brief = json.loads(brief_path.read_text(encoding="utf-8"))
+            return _generation_credit_cost({"brief": brief})
+        except Exception:
+            return 0
+    return 0
+
+
+def _maybe_refund_failed_generation(handler: BaseHTTPRequestHandler, payload: dict[str, Any]) -> dict[str, Any]:
+    status = str(payload.get("status") or "")
+    if status not in {"failed", "cancelled"}:
+        return payload
+    if not payload.get("quota_debited") or payload.get("quota_refunded"):
+        return payload
+    owner_user_id = str(payload.get("owner_user_id") or "")
+    credits = _task_quota_debit_credits(payload)
+    if not owner_user_id or credits <= 0:
+        return payload
+    store = _read_auth_store(handler.jobs_dir)
+    user = (store.get("users") or {}).get(owner_user_id)
+    if not isinstance(user, dict):
+        return payload
+    quota = _normalized_quota(user)
+    quota["used"] = max(0, int(quota.get("used") or 0) - credits)
+    quota["unit"] = "credits"
+    quota["last_credit"] = {
+        "credits": credits,
+        "reason": "generation_failed_refund",
+        "task_id": payload.get("job_id") or "",
+        "created_at": _now_like(),
+    }
+    user["quota"] = quota
+    store["users"][owner_user_id] = user
+    _write_auth_store(handler.jobs_dir, store)
+    payload["quota_refunded"] = True
+    payload["quota_refund_credits"] = credits
+    payload["quota_refund_reason"] = "generation_failed_refund"
+    status_path = Path(str(payload.get("project_dir") or "")) / "job_status.json"
+    if status_path.exists():
+        status_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _maybe_award_referral_completion(jobs_dir: Path, task_payload: dict[str, Any]) -> None:
+    if task_payload.get("status") != "completed":
+        return
+    user_id = str(task_payload.get("owner_user_id") or "").strip()
+    if not user_id:
+        return
+    with _auth_store_txn(jobs_dir) as _txn:
+        store = _txn.store
+        user = (store.get("users") or {}).get(user_id)
+        if not isinstance(user, dict):
+            return
+        referrer_id = str(user.get("referred_by") or "").strip()
+        if not referrer_id or user.get("referral_status") == "completed":
+            return
+        awarded = _grant_bonus_credits(
+            store,
+            referrer_id,
+            _limit_int("PPT_MASTER_REFERRAL_COMPLETION_BONUS_CREDITS", 50),
+            "referral_first_generation_bonus",
+            {"event_key": f"referral_completed:{user_id}", "referred_user_id": user_id},
+        )
+        if awarded:
+            user["referral_status"] = "completed"
+            user["referral_completed_at"] = _now_like()
+            store["users"][user_id] = user
+            store.setdefault("referral_events", []).append({
+                "type": "referral.completed",
+                "referrer_user_id": referrer_id,
+                "referred_user_id": user_id,
+                "task_id": task_payload.get("task_id") or task_payload.get("job_id"),
+                "created_at": _now_like(),
+            })
+            _txn.commit()
+
+
+def _referrals_response(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    user, store = _current_user(handler)
+    if not user:
+        raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before viewing referrals")
+    code = _ensure_referral_code(store, user)
+    user_id = str(user.get("id") or "")
+    store["users"][user_id] = user
+    events = [
+        item for item in (store.get("referral_events") or [])
+        if isinstance(item, dict) and str(item.get("referrer_user_id") or "") == user_id
+    ]
+    ledger = [
+        item for item in _credit_ledger(store)
+        if isinstance(item, dict) and str((item.get("metadata") or {}).get("referrer_user_id") or item.get("user_id") or "") == user_id
+    ]
+    _write_auth_store(handler.jobs_dir, store)
+    invite_url = f"{handler.frontend_base_url.rstrip('/')}/index.html?ref={urllib.parse.quote(code)}"
+    return {
+        "referral_code": code,
+        "invite_url": invite_url,
+        "signup_bonus_credits": _limit_int("PPT_MASTER_REFERRAL_SIGNUP_BONUS_CREDITS", 30),
+        "completion_bonus_credits": _limit_int("PPT_MASTER_REFERRAL_COMPLETION_BONUS_CREDITS", 50),
+        "events": events[-50:],
+        "credit_ledger": ledger[-50:],
+    }
+
+
+def _read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    length = int(handler.headers.get("Content-Length", "0"))
+    if length <= 0:
+        return {}
+    raw = handler.rfile.read(length).decode("utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"Invalid JSON body: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "JSON body must be an object")
+    return data
+
+
+def _read_form(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    length = int(handler.headers.get("Content-Length", "0"))
+    if length <= 0:
+        return {}
+    raw = handler.rfile.read(length).decode("utf-8")
+    parsed = urllib.parse.parse_qs(raw, keep_blank_values=True)
+    return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+def _read_query_params(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    parsed = urllib.parse.parse_qs(urlparse(handler.path).query, keep_blank_values=True)
+    return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:].strip()
+    if text.startswith("```"):
+        text = text[3:].strip()
+    if text.endswith("```"):
+        text = text[:-3].strip()
+    decoder = json.JSONDecoder()
+    data = None
+    for match in re.finditer(r"\{", text):
+        try:
+            candidate, _ = decoder.raw_decode(text[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            data = candidate
+            break
+    if data is None:
+        raise ValueError("AI response must contain a JSON object")
+    if not isinstance(data, dict):
+        raise ValueError("AI response must be a JSON object")
+    return data
+
+
+def _latest_user_content(messages: list[Any]) -> str:
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            return str(message.get("content") or "").strip()
+    return ""
+
+
+def _fallback_brief_plan(messages: list[Any], settings: dict[str, Any], language: str, brief: dict[str, Any]) -> dict[str, Any]:
+    prompt = _latest_user_content(messages) or ("生成一份 PPT" if language == "zh-CN" else "Create a PPT")
+    page_count = settings.get("page_count") or brief.get("page_count") or 8
+    try:
+        page_count = max(4, min(12, int(page_count)))
+    except Exception:
+        page_count = 8
+
+    if language == "zh-CN":
+        outline_seed = [
+            ("封面与主题定位", ["说明主题、面向对象和演示目标"]),
+            ("背景与问题", ["介绍为什么现在需要关注这个主题"]),
+            ("核心概念", ["用清晰语言解释关键技术和边界"]),
+            ("关键能力", ["拆解能力模块、流程或架构"]),
+            ("典型场景", ["结合企业或业务场景说明价值"]),
+            ("落地建议", ["给出推进路径、风险和下一步"]),
+            ("总结", ["提炼 3 个最重要结论"]),
+        ]
+        reply = "我先按这个方向拟了一个大纲，你确认后我再开始生成。"
+        reason = "这类内容通常适合少量概念图、流程图或场景图，能帮助听众更快理解。"
+    else:
+        outline_seed = [
+            ("Title and framing", ["Clarify the topic, audience, and goal"]),
+            ("Background and problem", ["Explain why this topic matters now"]),
+            ("Core concepts", ["Define the key ideas in plain language"]),
+            ("Key capabilities", ["Break down modules, workflow, or architecture"]),
+            ("Use cases", ["Connect the topic to business or practical scenarios"]),
+            ("Execution suggestions", ["Show next steps, risks, and recommendations"]),
+            ("Wrap-up", ["Summarize the three most important takeaways"]),
+        ]
+        reply = "I drafted a concise outline first. Once you confirm it, I will generate the deck."
+        reason = "A few concept, workflow, or scenario visuals would make the deck easier to understand."
+
+    outline: list[dict[str, Any]] = []
+    for index in range(page_count):
+        title, points = outline_seed[min(index, len(outline_seed) - 1)]
+        outline.append({"title": title, "points": points})
+
+    brief.setdefault("scenario", "general")
+    brief.setdefault("audience", "general")
+    brief.setdefault("goal", "inform")
+    brief.setdefault("tone", "concise_professional")
+    brief.setdefault("style", "business_light")
+    brief.setdefault("language", language)
+    if settings.get("mode"):
+        brief["generation_mode"] = str(settings.get("mode"))
+    if settings.get("role"):
+        brief["role"] = str(settings.get("role"))
+    if settings.get("scene"):
+        brief["scenario"] = str(settings.get("scene"))
+    if settings.get("audience"):
+        brief["audience"] = str(settings.get("audience"))
+    if settings.get("duration_minutes"):
+        brief["duration_minutes"] = settings.get("duration_minutes")
+    brief["page_count"] = page_count
+    brief.setdefault("user_notes", prompt)
+    return {
+        "reply": reply,
+        "ready": False,
+        "needs_confirmation": True,
+        "final_prompt": prompt,
+        "outline": outline,
+        "visual_advice": {
+            "recommend_images": bool(settings.get("include_images")),
+            "reason": reason,
+            "suggested_slides": [
+                {"slide": 2, "usage": "concept or context visual"},
+                {"slide": 4, "usage": "workflow or architecture visual"},
+            ],
+        },
+        "brief": brief,
+    }
+
+
+def _job_status_path(jobs_dir: Path, job_id: str) -> Path:
+    return jobs_dir / job_id / "job_status.json"
+
+
+def _load_status_payload(jobs_dir: Path, job_id: str) -> dict[str, Any]:
+    status_path = _job_status_path(jobs_dir, job_id)
+    if not status_path.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {job_id}")
+    last_error = None
+    for _ in range(5):
+        try:
+            return json.loads(status_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            time.sleep(0.05)
+    raise ApiError(HTTPStatus.CONFLICT, f"Task status is being updated; retry shortly: {last_error}")
+
+
+def _task_limits() -> dict[str, int]:
+    return {
+        "max_pages": _limit_int("PPT_MASTER_MAX_PAGES", 30),
+        "max_attempts": _limit_int("PPT_MASTER_MAX_ATTEMPTS", 5),
+        "max_files": _limit_int("PPT_MASTER_MAX_FILES", 12),
+        "max_file_bytes": _limit_int("PPT_MASTER_MAX_FILE_BYTES", 30 * 1024 * 1024),
+        "max_total_upload_bytes": _limit_int("PPT_MASTER_MAX_TOTAL_UPLOAD_BYTES", 60 * 1024 * 1024),
+        "max_urls": _limit_int("PPT_MASTER_MAX_URLS", 10),
+        "max_source_chars": _limit_int("PPT_MASTER_MAX_SOURCE_CHARS", 180_000),
+        "max_image_pages": _limit_int("PPT_MASTER_MAX_IMAGE_PAGES", 12),
+        "max_audio_pages": _limit_int("PPT_MASTER_MAX_AUDIO_PAGES", 20),
+    }
+
+
+def _validate_task_preflight(payload: dict[str, Any]) -> None:
+    limits = _task_limits()
+    brief = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    errors: list[str] = []
+
+    route = str(brief.get("route") or payload.get("route") or "generate_pptx")
+    capability = route_capabilities().get(route)
+    if capability is None:
+        errors.append(f"unknown PPT Master route: {route}")
+    elif not capability.available:
+        errors.append(f"PPT Master route '{route}' is not available in this deployment")
+
+    try:
+        page_count = int(brief.get("page_count") or payload.get("page_count") or 0)
+    except Exception:
+        page_count = 0
+    if page_count and page_count > limits["max_pages"]:
+        errors.append(f"page_count {page_count} exceeds limit {limits['max_pages']}")
+
+    try:
+        max_attempts = int(payload.get("max_attempts", 2))
+    except Exception:
+        max_attempts = 2
+    if max_attempts > limits["max_attempts"]:
+        errors.append(f"max_attempts {max_attempts} exceeds limit {limits['max_attempts']}")
+
+    source_text = str(payload.get("source_text") or brief.get("source_text") or "")
+    if len(source_text) > limits["max_source_chars"]:
+        errors.append(f"source_text is too long ({len(source_text)} chars, limit {limits['max_source_chars']})")
+
+    urls = payload.get("source_urls") or brief.get("source_urls") or []
+    if isinstance(urls, list) and len(urls) > limits["max_urls"]:
+        errors.append(f"source_urls count {len(urls)} exceeds limit {limits['max_urls']}")
+
+    materials = payload.get("material_files") or []
+    if not isinstance(materials, list):
+        materials = []
+    if len(materials) > limits["max_files"]:
+        errors.append(f"file count {len(materials)} exceeds limit {limits['max_files']}")
+    total_size = 0
+    for item in materials:
+        if not isinstance(item, dict):
+            continue
+        try:
+            size = int(item.get("size") or 0)
+        except Exception:
+            size = 0
+        total_size += max(0, size)
+        name = str(item.get("name") or "file")
+        if size > limits["max_file_bytes"]:
+            errors.append(f"{name} exceeds per-file limit {limits['max_file_bytes']} bytes")
+    if total_size > limits["max_total_upload_bytes"]:
+        errors.append(f"total upload size {total_size} exceeds limit {limits['max_total_upload_bytes']} bytes")
+
+    if brief.get("include_images") is True and page_count > limits["max_image_pages"]:
+        errors.append(f"image generation is limited to {limits['max_image_pages']} pages")
+    if brief.get("include_audio") is True and page_count > limits["max_audio_pages"]:
+        errors.append(f"audio narration is limited to {limits['max_audio_pages']} pages")
+
+    if errors:
+        message = "Task preflight failed: " + "; ".join(errors)
+        raise ApiError(HTTPStatus.BAD_REQUEST, message)
+
+
+def _materialize_request_inputs(jobs_dir: Path, payload: dict[str, Any]) -> tuple[str, Path, Path]:
+    job_id = str(payload.get("job_id") or f"job_{uuid.uuid4().hex[:12]}")
+    input_dir = jobs_dir / job_id / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    brief_path = payload.get("brief_path")
+    brief_payload: dict[str, Any] = {}
+    if brief_path:
+        brief_file = Path(str(brief_path)).expanduser().resolve()
+    elif "brief" in payload:
+        brief_file = input_dir / "brief.json"
+        brief_payload = payload["brief"] if isinstance(payload["brief"], dict) else {}
+        if not str(brief_payload.get("source_text") or "").strip() and str(payload.get("source_text") or "").strip():
+            brief_payload = dict(brief_payload)
+            brief_payload["source_text"] = str(payload.get("source_text") or "")
+        brief_file.write_text(
+            json.dumps(brief_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    else:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Provide either brief_path or brief")
+
+    source_path = payload.get("source_path")
+    if source_path:
+        source_file = Path(str(source_path)).expanduser().resolve()
+    elif "source_text" in payload or payload.get("material_files") or payload.get("source_urls") or brief_payload.get("source_urls"):
+        try:
+            source_file = materialize_source(
+                input_dir=input_dir,
+                source_text=str(payload.get("source_text") or ""),
+                materials=payload.get("material_files") or [],
+                source_urls=payload.get("source_urls") or brief_payload.get("source_urls") or [],
+            )
+        except Exception as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
+    else:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Provide source_path, source_text, or material_files")
+
+    if not brief_file.exists():
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"brief file does not exist: {brief_file}")
+    if not source_file.exists():
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"source file does not exist: {source_file}")
+
+    return job_id, brief_file, source_file
+
+
+def _compute_retry_diagnostics(status_payload: dict[str, Any]) -> dict[str, Any]:
+    """Generate actionable diagnostic advice for a failed/cancelled task."""
+    brief = status_payload.get("brief") or {}
+    error_msg = str(status_payload.get("error_message") or "")
+    error_code = str(status_payload.get("error_code") or "")
+    combined = (error_msg + " " + error_code).lower()
+
+    page_count = int(brief.get("page_count") or 0)
+    include_images = brief.get("include_images")
+    include_audio = brief.get("include_audio")
+    include_animations = brief.get("include_animations")
+    include_svg_snapshot = brief.get("include_svg_snapshot")
+
+    reasons: list[str] = []
+    suggestions: list[str] = []
+    by_category: dict[str, str] = {}
+
+    if include_images is not False and any(kw in combined for kw in ("image", "timeout", "504", "503", "connection", "synthesize", "timed out", "rate limit")):
+        reasons.append("Image generation may have timed out or hit a rate limit")
+        suggestions.append("Disable image generation on retry")
+        by_category["images"] = "disable"
+
+    if include_audio is not False and any(kw in combined for kw in ("audio", "tts", "speech", "narration", "voice", "sound")):
+        reasons.append("Audio/narration generation may have failed")
+        suggestions.append("Disable audio narration on retry")
+        by_category["audio"] = "disable"
+
+    if include_animations is not False and any(kw in combined for kw in ("animat", "transition", "motion")):
+        reasons.append("Animation export may have caused the failure")
+        suggestions.append("Disable animations on retry")
+        by_category["animations"] = "disable"
+
+    if include_svg_snapshot is not False and any(kw in combined for kw in ("svg", "snapshot", "render", "convert")):
+        reasons.append("SVG snapshot generation may have failed")
+        suggestions.append("Disable SVG snapshots on retry")
+        by_category["snapshot"] = "disable"
+
+    if page_count > 12 and any(kw in combined for kw in ("memory", "token", "length", "page", "too large", "exceed", "limit")):
+        reasons.append(f"Page count ({page_count}) may exceed processing limits")
+        suggestions.append(f"Reduce page count (was {page_count}; suggested max 12)")
+        by_category["pages"] = "reduce"
+
+    if not suggestions and ("timeout" in combined or "504" in combined or "503" in combined):
+        reasons.append("Request timed out — safe retry with reduced settings may help")
+        suggestions.append("Try safe retry (disabling images, audio, animations, and snapshots)")
+
+    return {
+        "generated": bool(reasons),
+        "reasons": reasons,
+        "suggestions": suggestions,
+        "by_category": by_category,
+        "safe_retry_recommended": bool(reasons) or status_payload.get("status") == "failed",
+    }
+
+
+
+def _apply_retry_fallback(brief_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply safer settings before retrying a failed local job."""
+    mode = str(payload.get("fallback_mode") or "safe").lower()
+    if mode in {"none", "off", "false"}:
+        return {"mode": "none", "changed": False}
+    try:
+        brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ApiError(HTTPStatus.BAD_REQUEST, f"Could not read retry brief: {exc}") from exc
+    if not isinstance(brief, dict):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Retry brief must be a JSON object")
+
+    before = {
+        "page_count": brief.get("page_count"),
+        "include_images": brief.get("include_images"),
+        "include_audio": brief.get("include_audio"),
+        "include_animations": brief.get("include_animations"),
+        "include_svg_snapshot": brief.get("include_svg_snapshot"),
+        "image_source_mode": brief.get("image_source_mode"),
+    }
+    max_pages = int(payload.get("fallback_max_pages") or os.environ.get("PPT_MASTER_RETRY_MAX_PAGES", "12"))
+    if int(brief.get("page_count") or 0) > max_pages:
+        brief["page_count"] = max_pages
+    if payload.get("disable_images_on_retry", True):
+        brief["include_images"] = False
+        brief["image_source_mode"] = "none"
+    if payload.get("disable_audio_on_retry", True):
+        brief["include_audio"] = False
+    if payload.get("disable_svg_snapshot_on_retry", True):
+        brief["include_svg_snapshot"] = False
+    if payload.get("disable_animations_on_retry", True):
+        brief["include_animations"] = False
+    brief["retry_policy"] = {
+        "mode": "safe",
+        "reason": "Automatic fallback retry after a failed or cancelled generation task",
+        "previous": before,
+    }
+    brief_path.write_text(json.dumps(brief, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "mode": "safe",
+        "changed": True,
+        "previous": before,
+        "next": {
+            "page_count": brief.get("page_count"),
+            "include_images": brief.get("include_images"),
+            "include_audio": brief.get("include_audio"),
+            "include_animations": brief.get("include_animations"),
+            "include_svg_snapshot": brief.get("include_svg_snapshot"),
+            "image_source_mode": brief.get("image_source_mode"),
+        },
+    }
+
+
+def _start_background_job(job_status_path: Path, max_attempts: int) -> None:
+    def target() -> None:
+        job = load_job(job_status_path)
+        run_job(job, max_attempts=max_attempts)
+
+    thread = threading.Thread(target=target, name=f"ppt-master-{job_status_path.parent.name}", daemon=True)
+    thread.start()
+
+
+class GenerationApiHandler(BaseHTTPRequestHandler):
+    jobs_dir: Path = DEFAULT_JOBS_DIR
+    store: str = "json"
+    access_token: str = ""
+    frontend_base_url: str = "http://127.0.0.1:8000"
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def do_GET(self) -> None:
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            if path in {"/", "/cloud-generator.html"}:
+                location = f"{self.frontend_base_url.rstrip('/')}{path if path != '/' else '/cloud-generator.html'}"
+                if parsed.query:
+                    location = f"{location}?{parsed.query}"
+                _redirect_response(self, location)
+                return
+
+            if path == "/health":
+                _json_response(self, HTTPStatus.OK, {"status": "ok", "store": self.store})
+                return
+
+            if path == "/provider-status":
+                _json_response(self, HTTPStatus.OK, _provider_status_response())
+                return
+
+            if path == "/core-capabilities":
+                _json_response(self, HTTPStatus.OK, {
+                    "core": "ppt-master",
+                    "capabilities": [
+                        {
+                            "route": capability.route.value,
+                            "core_available": capability.core_available,
+                            "cloud_available": capability.cloud_available,
+                            "session_available": capability.session_available,
+                            "available": capability.available,
+                            "implementation": capability.implementation,
+                            "reason": capability.reason,
+                        }
+                        for capability in route_capabilities().values()
+                    ],
+                })
+                return
+
+            if path == "/billing/ypay/notify":
+                _text_response(self, HTTPStatus.OK, _ypay_notify_response(self, _read_query_params(self)))
+                return
+
+            _require_access(self)
+            if path == "/membership":
+                _json_response(self, HTTPStatus.OK, _membership_response(self))
+                return
+
+            if path == "/account/profile":
+                _json_response(self, HTTPStatus.OK, _profile_response(self))
+                return
+
+            if path == "/usage":
+                _json_response(self, HTTPStatus.OK, _usage_response(self))
+                return
+
+            if path == "/team":
+                _json_response(self, HTTPStatus.OK, _team_response(self))
+                return
+
+            if path == "/referrals":
+                _json_response(self, HTTPStatus.OK, _referrals_response(self))
+                return
+
+            if path == "/templates":
+                _json_response(self, HTTPStatus.OK, _templates_response(self.jobs_dir, self))
+                return
+
+            parts = path.strip("/").split("/")
+            if len(parts) == 2 and parts[0] == "route-sessions":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                _json_response(self, HTTPStatus.OK, _public_route_session(session))
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "authoring":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                root = Path(str((session.get("artifacts") or {}).get("authoring_svg") or ""))
+                summary_path = root / "authoring_summary.json"
+                try:
+                    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+                except json.JSONDecodeError:
+                    summary = {}
+                files = sorted(path.name for path in root.glob("*.svg")) if root.is_dir() else []
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "files": files,
+                    "summary": summary,
+                    "file_base_url": f"/route-sessions/{parts[1]}/authoring-file/",
+                })
+                return
+
+            if len(parts) == 4 and parts[0] == "route-sessions" and parts[2] == "authoring-file":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                file_path = _route_authoring_file(session, parts[3])
+                _bytes_response(self, HTTPStatus.OK, file_path.read_bytes(), _content_type(file_path))
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "authoring-history":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                filename = str((parse_qs(parsed.query).get("file") or [""])[0])
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "file": filename,
+                    "history": _authoring_history(session, filename) if filename else [],
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "download":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                output = Path(str((session.get("artifacts") or {}).get("output") or ""))
+                if session.get("status") != "completed" or not output.is_file():
+                    raise ApiError(HTTPStatus.CONFLICT, "Route session output is not ready")
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "download_url": f"/route-sessions/{parts[1]}/download-file",
+                    "filename": output.name,
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "download-file":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                output = Path(str((session.get("artifacts") or {}).get("output") or ""))
+                if session.get("status") != "completed" or not output.is_file():
+                    raise ApiError(HTTPStatus.CONFLICT, "Route session output is not ready")
+                _download_bytes_response(self, output)
+                return
+
+            if path == "/generation-tasks":
+                user, _store = _current_user(self)
+                owner_user_id = str(user.get("id") or "") if user else ""
+                _json_response(self, HTTPStatus.OK, _tasks_response(self.jobs_dir, self.store, owner_user_id=owner_user_id))
+                return
+
+            if len(parts) == 2 and parts[0] == "generation-tasks":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                    _json_response(self, HTTPStatus.OK, _postgres_status_response(parts[1]))
+                else:
+                    payload = _load_status_payload(self.jobs_dir, parts[1])
+                    _require_task_owner(self, payload)
+                    payload = _maybe_refund_failed_generation(self, payload)
+                    _maybe_award_referral_completion(self.jobs_dir, payload)
+                    _json_response(self, HTTPStatus.OK, _json_status_response(payload))
+                return
+
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "download":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                _json_response(self, HTTPStatus.OK, _download_response(parts[1], self.jobs_dir, self.store))
+                return
+
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "download-file":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                _download_bytes_response(self, _download_file(parts[1], self.jobs_dir, self.store))
+                return
+
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "download-narrated-file":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                _download_bytes_response(self, _narrated_download_file(parts[1], self.jobs_dir, self.store))
+                return
+
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "preview":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                _json_response(self, HTTPStatus.OK, _preview_response(parts[1], self.jobs_dir, self.store))
+                return
+
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "artifacts":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                _json_response(self, HTTPStatus.OK, _artifacts_response(parts[1], self.jobs_dir, self.store))
+                return
+
+            if len(parts) == 5 and parts[0] == "generation-tasks" and parts[2:4] == ["assets", "preview"]:
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                asset = _preview_asset(parts[1], unquote(parts[4]), self.jobs_dir, self.store)
+                _bytes_response(self, HTTPStatus.OK, asset.read_bytes(), _content_type(asset))
+                return
+
+            if len(parts) == 5 and parts[0] == "generation-tasks" and parts[2:4] == ["assets", "audio"]:
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                asset = _audio_asset(parts[1], unquote(parts[4]), self.jobs_dir, self.store)
+                _bytes_response(self, HTTPStatus.OK, asset.read_bytes(), _content_type(asset))
+                return
+
+            if len(parts) == 5 and parts[0] == "generation-tasks" and parts[2:4] == ["assets", "images"]:
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                asset = _image_asset(parts[1], unquote(parts[4]), self.jobs_dir, self.store)
+                _bytes_response(self, HTTPStatus.OK, asset.read_bytes(), _content_type(asset))
+                return
+
+            if len(parts) == 5 and parts[0] == "generation-tasks" and parts[2:4] == ["assets", "notes"]:
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                else:
+                    _require_task_owner(self, _load_status_payload(self.jobs_dir, parts[1]))
+                asset = _notes_asset(parts[1], unquote(parts[4]), self.jobs_dir, self.store)
+                _bytes_response(self, HTTPStatus.OK, asset.read_bytes(), _content_type(asset))
+                return
+
+            raise ApiError(HTTPStatus.NOT_FOUND, "Route not found")
+        except ApiError as exc:
+            _json_response(self, exc.status, {"error": exc.message})
+        except RouteSessionError as exc:
+            _json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+    def do_PATCH(self) -> None:
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            _require_access(self)
+            if path == "/account/profile":
+                _json_response(self, HTTPStatus.OK, _profile_update_response(self, _read_json(self)))
+                return
+            raise ApiError(HTTPStatus.NOT_FOUND, "Route not found")
+        except ApiError as exc:
+            _json_response(self, exc.status, {"error": exc.message})
+        except RouteSessionError as exc:
+            _json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT.value)
+        _send_cors_headers(self)
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
+            if path in {"/auth/register", "/auth/login"}:
+                mode = "register" if path.endswith("/register") else "login"
+                _json_response(self, HTTPStatus.OK, _auth_response(self.jobs_dir, _read_json(self), mode=mode))
+                return
+
+            if path in {"/auth/cloudbase/email/register", "/auth/cloudbase/email/login"}:
+                mode = "register" if path.endswith("/register") else "login"
+                _json_response(self, HTTPStatus.OK, _cloudbase_email_auth_response(self.jobs_dir, _read_json(self), mode=mode))
+                return
+
+            if path == "/auth/cloudbase/sms/start":
+                _json_response(self, HTTPStatus.OK, _cloudbase_sms_start_response(self.jobs_dir, _read_json(self)))
+                return
+
+            if path == "/auth/cloudbase/sms/verify":
+                _json_response(self, HTTPStatus.OK, _cloudbase_sms_verify_response(self.jobs_dir, _read_json(self)))
+                return
+
+            if path == "/billing/alipay/notify":
+                _text_response(self, HTTPStatus.OK, _alipay_notify_response(self, _read_form(self)))
+                return
+
+            if path == "/billing/ypay/notify":
+                _text_response(self, HTTPStatus.OK, _ypay_notify_response(self, _read_form(self)))
+                return
+
+            # Payment providers do not have the app access token. This endpoint
+            # is protected by the billing webhook secret/HMAC instead.
+            if path == "/billing/webhook":
+                _json_response(self, HTTPStatus.OK, _billing_webhook_response(self, _read_json(self)))
+                return
+
+            if path == "/billing/paddle/webhook":
+                _json_response(self, HTTPStatus.OK, _paddle_webhook_response(self, _read_json(self)))
+                return
+
+            _require_access(self)
+            if path == "/auth/logout":
+                _json_response(self, HTTPStatus.OK, _auth_logout_response(self))
+                return
+
+            if path == "/brief-assistant":
+                _json_response(self, HTTPStatus.OK, _brief_assistant_response(_read_json(self)))
+                return
+
+            if path == "/templates/import":
+                _json_response(self, HTTPStatus.OK, _import_template_response(self.jobs_dir, _read_json(self)))
+                return
+
+            if path == "/membership/plan":
+                _json_response(self, HTTPStatus.OK, _membership_plan_response(self, _read_json(self)))
+                return
+
+            if path == "/account/profile":
+                _json_response(self, HTTPStatus.OK, _profile_update_response(self, _read_json(self)))
+                return
+
+            if path == "/billing/checkout":
+                _json_response(self, HTTPStatus.OK, _billing_checkout_response(self, _read_json(self)))
+                return
+
+            if path == "/team/invite":
+                _json_response(self, HTTPStatus.OK, _team_invite_response(self, _read_json(self)))
+                return
+
+            if path == "/team/remove":
+                _json_response(self, HTTPStatus.OK, _team_remove_response(self, _read_json(self)))
+                return
+
+            parts = path.strip("/").split("/")
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "cancel":
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                    current = get_task(parts[1])
+                    if current and str(current.get("status")) in {"completed", "failed", "cancelled"}:
+                        raise ApiError(HTTPStatus.CONFLICT, "Only queued or running tasks can be cancelled")
+                    task = cancel_task(parts[1])
+                    if not task:
+                        raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {parts[1]}")
+                    _json_response(self, HTTPStatus.ACCEPTED, {
+                        "task_id": task["id"],
+                        "status": task["status"],
+                        "store": "postgres",
+                        "status_url": f"/generation-tasks/{task['id']}",
+                    })
+                    return
+                payload = _load_status_payload(self.jobs_dir, parts[1])
+                _require_task_owner(self, payload)
+                if str(payload.get("status")) in {"completed", "failed", "cancelled"}:
+                    raise ApiError(HTTPStatus.CONFLICT, "Only queued or running tasks can be cancelled")
+                job = cancel_job(load_job(Path(payload["project_dir"]) / "job_status.json"))
+                _json_response(self, HTTPStatus.ACCEPTED, {
+                    "task_id": job.job_id,
+                    "status": job.status,
+                    "store": "json",
+                    "status_url": f"/generation-tasks/{job.job_id}",
+                })
+                return
+            if path == "/route-sessions":
+                payload = _read_json(self)
+                user, _store = _current_user(self)
+                if not user and os.environ.get("PPT_MASTER_REQUIRE_AUTH") == "1":
+                    raise ApiError(HTTPStatus.UNAUTHORIZED, "Sign in before creating a native route session")
+                owner_user_id = str(user.get("id") or "") if user else ""
+                session = prepare_route_session(
+                    jobs_dir=self.jobs_dir,
+                    skill_dir=SKILL_DIR,
+                    payload=payload,
+                    owner_user_id=owner_user_id,
+                )
+                _json_response(self, HTTPStatus.ACCEPTED, {
+                    "session_id": session["session_id"],
+                    "status": session["status"],
+                    "route": session["route"],
+                    "session_url": f"/route-sessions/{session['session_id']}",
+                    "download_url": f"/route-sessions/{session['session_id']}/download",
+                    "artifacts": _public_route_session(session).get("artifacts") or {},
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "authoring-edit":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                result = _edit_authoring_svg(session, _read_json(self))
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "status": session.get("status"),
+                    "edit": result,
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "authoring-undo":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                result = _undo_authoring_svg(session, _read_json(self))
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "status": session.get("status"),
+                    "undo": result,
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "authoring-restore":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                result = _restore_authoring_snapshot(session, _read_json(self))
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "status": session.get("status"),
+                    "restore": result,
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "publish":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                session = _debit_route_session_quota(self, session)
+                try:
+                    session = publish_template_session(
+                        jobs_dir=self.jobs_dir,
+                        skill_dir=SKILL_DIR,
+                        session_id=parts[1],
+                        payload=_read_json(self),
+                    )
+                except Exception:
+                    _refund_route_session_quota(self, session)
+                    raise
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "status": session["status"],
+                    "route": session["route"],
+                    "session_url": f"/route-sessions/{session['session_id']}",
+                    "template": session.get("template") or {},
+                    "artifacts": _public_route_session(session).get("artifacts") or {},
+                    "membership": _optional_membership_response(self),
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "route-sessions" and parts[2] == "confirm":
+                session = load_route_session(self.jobs_dir, parts[1])
+                _require_route_session_owner(self, session)
+                session = _debit_route_session_quota(self, session)
+                try:
+                    session = confirm_route_session(
+                        jobs_dir=self.jobs_dir,
+                        skill_dir=SKILL_DIR,
+                        session_id=parts[1],
+                        payload=_read_json(self),
+                    )
+                except Exception:
+                    _refund_route_session_quota(self, session)
+                    raise
+                _json_response(self, HTTPStatus.OK, {
+                    "session_id": session["session_id"],
+                    "status": session["status"],
+                    "route": session["route"],
+                    "session_url": f"/route-sessions/{session['session_id']}",
+                    "download_url": f"/route-sessions/{session['session_id']}/download",
+                    "artifacts": _public_route_session(session).get("artifacts") or {},
+                    "membership": _optional_membership_response(self),
+                })
+                return
+
+            if len(parts) == 3 and parts[0] == "generation-tasks" and parts[2] == "retry":
+                retry_payload = _read_json(self) or {}
+                max_attempts = int(retry_payload.get("max_attempts") or 5)
+                if self.store == "postgres":
+                    _require_postgres_task_owner(self, parts[1])
+                    task = get_task(parts[1])
+                    if not task:
+                        raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {parts[1]}")
+                    if task.get("status") not in {"failed", "cancelled"}:
+                        raise ApiError(HTTPStatus.CONFLICT, "Only failed or cancelled tasks can be retried")
+                    brief_path = Path(str(task.get("brief_path") or ""))
+                    if not brief_path.exists():
+                        raise ApiError(HTTPStatus.BAD_REQUEST, f"Retry brief is missing: {brief_path}")
+                    retry_fallback = _apply_retry_fallback(brief_path, retry_payload)
+                    row = retry_task(
+                        parts[1],
+                        max_attempts=max_attempts,
+                        event_metadata={
+                            "trigger": "api",
+                            "retry_fallback": retry_fallback,
+                        },
+                    )
+                    if not row:
+                        raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {parts[1]}")
+                    _json_response(self, HTTPStatus.ACCEPTED, {
+                        "task_id": row["id"],
+                        "status": row["status"],
+                        "store": "postgres",
+                        "status_url": f"/generation-tasks/{row['id']}",
+                        "download_url": f"/generation-tasks/{row['id']}/download",
+                        "membership": _membership_response(self),
+                        "retry_fallback": retry_fallback,
+                    })
+                    return
+                payload = _load_status_payload(self.jobs_dir, parts[1])
+                _require_task_owner(self, payload)
+                if payload.get("status") not in {"failed", "cancelled"}:
+                    raise ApiError(HTTPStatus.CONFLICT, "Only failed or cancelled tasks can be retried")
+                retry_fallback = _apply_retry_fallback(Path(str(payload["brief_path"])), retry_payload)
+                job = reset_job_for_retry(load_job(Path(payload["project_dir"]) / "job_status.json"))
+                _start_background_job(Path(job.project_dir) / "job_status.json", max_attempts=max_attempts)
+                _json_response(self, HTTPStatus.ACCEPTED, {
+                    "task_id": job.job_id,
+                    "status": job.status,
+                    "store": "json",
+                    "status_url": f"/generation-tasks/{job.job_id}",
+                    "download_url": f"/generation-tasks/{job.job_id}/download",
+                    "status_path": str(Path(job.project_dir) / "job_status.json"),
+                    "membership": _membership_response(self),
+                    "retry_fallback": retry_fallback,
+                })
+                return
+
+            if path != "/generation-tasks":
+                raise ApiError(HTTPStatus.NOT_FOUND, "Route not found")
+
+            payload = _read_json(self)
+            _validate_task_preflight(payload)
+            owner_user_id, quota_debited, quota_debit_credits, quota_credit_cost_model = _debit_quota(self, payload)
+            job_id, brief_path, source_path = _materialize_request_inputs(self.jobs_dir, payload)
+            max_attempts = int(payload.get("max_attempts", 2))
+
+            if self.store == "postgres":
+                project_dir = self.jobs_dir / job_id
+                output_path = project_dir / "output" / "result.pptx"
+                row = enqueue_task(
+                    brief_path=str(brief_path),
+                    source_path=str(source_path),
+                    job_id=job_id,
+                    max_attempts=max_attempts,
+                    owner_user_id=owner_user_id,
+                    quota_debited=quota_debited,
+                    project_dir=str(project_dir),
+                    output_path=str(output_path),
+                )
+                _json_response(self, HTTPStatus.ACCEPTED, {
+                    "task_id": row["id"],
+                    "status": row["status"],
+                    "store": "postgres",
+                    "status_url": f"/generation-tasks/{row['id']}",
+                    "download_url": f"/generation-tasks/{row['id']}/download",
+                })
+            else:
+                run_async = bool(payload.get("run_async", True))
+                job = create_job(
+                    brief_path=brief_path,
+                    source_path=source_path,
+                    jobs_dir=self.jobs_dir,
+                    job_id=job_id,
+                    owner_user_id=owner_user_id,
+                    quota_debited=quota_debited,
+                    quota_debit_credits=quota_debit_credits,
+                    quota_credit_cost_model=quota_credit_cost_model,
+                )
+                status_path = Path(job.project_dir) / "job_status.json"
+                if run_async:
+                    _start_background_job(status_path, max_attempts=max_attempts)
+                else:
+                    job = run_job(job, max_attempts=max_attempts)
+
+                _json_response(self, HTTPStatus.ACCEPTED, {
+                    "task_id": job.job_id,
+                    "status": job.status,
+                    "store": "json",
+                    "status_url": f"/generation-tasks/{job.job_id}",
+                    "download_url": f"/generation-tasks/{job.job_id}/download",
+                    "status_path": str(status_path),
+                    "membership": _membership_response(self),
+                    "quota_debit_credits": quota_debit_credits,
+                })
+        except ApiError as exc:
+            _json_response(self, exc.status, {"error": exc.message})
+        except RouteSessionError as exc:
+            _json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
+
+def _brief_assistant_response(payload: dict[str, Any]) -> dict[str, Any]:
+    messages = payload.get("messages") or []
+    settings = payload.get("settings") or {}
+    files = payload.get("files") or []
+    language = str(payload.get("language") or "zh-CN")
+
+    system = """You are PPT Master's conversational planning assistant for an AI PPT generator.
+
+Behave like a natural chat assistant. Help the user think through the deck, but do not sound like a rigid form.
+Before starting generation, show a concise deck outline and wait for the user's confirmation.
+
+Consider a brief ready when it has enough of:
+- topic or source material
+- audience or usage scenario
+- page count or approximate length
+- language
+- style/tone
+- must-include points
+- image generation preference when provided by settings
+
+Rules:
+- Reply in the language of the latest user message. If the latest user message is Chinese, reply in Chinese; if it is English, reply in English. The payload language is only a fallback.
+- Use plain, friendly wording that a non-technical user can understand.
+- Do not mention internal implementation, backend stages, API names, script names, file paths, model routing, JSON, or code filenames.
+- Ask at most one focused question when the request is still ambiguous.
+- If the request is specific enough but the user has not confirmed an outline yet, produce an outline and set needs_confirmation=true.
+- If the latest user message confirms the previously shown outline, set ready=true and needs_confirmation=false.
+- Treat confirmations like "确认", "可以", "开始生成", "按这个来", "go ahead", "looks good" as confirmation when an outline was already shown.
+- Treat settings.mode, settings.role, settings.scene, settings.audience, settings.duration_minutes, and settings.page_count as optional user preferences. If a field is blank, infer it naturally from the user request and source materials.
+- If mode is creative, make the plan more visually expressive while staying editable in PowerPoint; if mode is standard, keep the plan practical and clear.
+- If role, audience, scene, duration, or page_count is provided, reflect it naturally in the reply and preserve it in the brief when possible.
+- If settings.include_images is true, preserve that choice in the brief and plan slides with AI-generated supporting illustrations or visual scenes where useful.
+- If settings.include_charts is true, preserve it and plan suitable PPT Master chart_template choices for data, process, roadmap, comparison, KPI, matrix, or architecture pages.
+- Preserve settings.image_source_mode as auto/generate/search/none when provided.
+- If settings.include_animations is true, preserve that choice in the brief and recommend restrained PowerPoint-native animation.
+- If settings.include_audio is true, preserve audio_provider/audio_voice and plan speaker-note narration.
+- If settings.include_svg_snapshot or settings.merge_paragraphs is true, preserve those export options.
+- If the user provides URLs or settings.source_urls, include them in brief.source_urls.
+- If settings.template is provided, preserve template_id, template_kind, and template_path in the brief.
+- Always analyze whether AI-generated images would help this deck. Give a practical recommendation even when image generation is currently disabled.
+- The outline confirmation should cover the deck goal, audience, page count, outline, style, template, image recommendation, and output options in a natural way. Do not make it sound like a form checklist.
+- Return JSON only, no markdown.
+
+JSON schema:
+{
+  "reply": "short assistant message shown to the user",
+  "ready": true,
+  "needs_confirmation": false,
+  "final_prompt": "clean generation request summary",
+  "outline": [
+    {"title": "slide title", "points": ["short point", "short point"]}
+  ],
+  "visual_advice": {
+    "recommend_images": true,
+    "reason": "short reason",
+    "suggested_slides": [
+      {"slide": 1, "usage": "hero concept visual"}
+    ]
+  },
+  "brief": {
+    "scenario": "executive_report|business_proposal|academic_defense|paper_reading|course_lecture|product_intro|data_briefing|general",
+    "audience": "boss|client|investor|colleague|student|public|general",
+    "goal": "decision_support|progress_update|persuade|educate|inform|general",
+    "tone": "concise_professional|data_driven|storytelling|academic|casual|general",
+    "style": "business_dark|business_light|academic|minimal|creative|data_report|general",
+    "role": "",
+    "generation_mode": "standard|creative",
+    "duration_minutes": 5,
+    "page_count": 4,
+    "language": "zh-CN|en|zh-EN",
+    "route": "generate_pptx|create_template|fill_native_pptx|enhance_native_pptx",
+    "include_images": false,
+    "include_charts": false,
+    "include_animations": false,
+    "include_audio": false,
+    "include_svg_snapshot": false,
+    "merge_paragraphs": false,
+    "image_source_mode": "auto",
+    "audio_provider": "edge",
+    "audio_voice": "",
+    "source_urls": [],
+    "template_id": "",
+    "template_kind": "",
+    "template_path": "",
+    "must_include": [],
+    "avoid": [],
+    "user_notes": ""
+  }
+}
+
+When asking a follow-up question, set ready=false, needs_confirmation=false, final_prompt="", outline=[], and brief={}.
+When showing an outline for confirmation, set ready=false, needs_confirmation=true, include a complete outline, final_prompt, and brief.
+When confirmed, set ready=true, needs_confirmation=false, include final_prompt and brief."""
+
+    user_payload = {
+        "language": language,
+        "settings": settings,
+        "files": files,
+        "messages": messages[-12:],
+    }
+
+    raw = chat_completion(
+        system=system,
+        user=json.dumps(user_payload, ensure_ascii=False, indent=2),
+        temperature=0.3,
+        max_tokens=2048,
+        profile="brief",
+    )
+    try:
+        data = _extract_json_object(raw)
+    except Exception:
+        return _fallback_brief_plan(messages, settings, language, {})
+
+    brief = data.get("brief") if isinstance(data.get("brief"), dict) else {}
+    if settings.get("include_images") is True:
+        brief["include_images"] = True
+    if settings.get("include_charts") is True:
+        brief["include_charts"] = True
+    if settings.get("mode"):
+        brief["generation_mode"] = str(settings.get("mode"))
+    if settings.get("role"):
+        brief["role"] = str(settings.get("role"))
+    if settings.get("scene"):
+        brief["scenario"] = str(settings.get("scene"))
+    if settings.get("audience"):
+        brief["audience_hint"] = str(settings.get("audience"))
+    if settings.get("duration_minutes"):
+        brief["duration_minutes"] = settings.get("duration_minutes")
+    if settings.get("page_count"):
+        try:
+            brief["page_count"] = max(4, min(30, int(settings.get("page_count"))))
+        except Exception:
+            pass
+    if settings.get("image_source_mode") in {"auto", "generate", "search", "none"}:
+        brief["image_source_mode"] = settings.get("image_source_mode")
+    if settings.get("include_animations") is True:
+        brief["include_animations"] = True
+    if settings.get("include_audio") is True:
+        brief["include_audio"] = True
+        brief["audio_provider"] = str(settings.get("audio_provider") or "edge")
+        brief["audio_voice"] = str(settings.get("audio_voice") or "")
+    if settings.get("include_svg_snapshot") is True:
+        brief["include_svg_snapshot"] = True
+    if settings.get("merge_paragraphs") is True:
+        brief["merge_paragraphs"] = True
+    urls = settings.get("source_urls") if isinstance(settings.get("source_urls"), list) else []
+    if urls:
+        brief["source_urls"] = [str(url) for url in urls[:10]]
+    template = settings.get("template") if isinstance(settings.get("template"), dict) else {}
+    if template:
+        brief["template_id"] = str(template.get("id") or "")
+        brief["template_kind"] = str(template.get("kind") or "")
+        brief["template_path"] = str(template.get("path") or "")
+
+    outline = data.get("outline") if isinstance(data.get("outline"), list) else []
+    if not str(data.get("reply") or "").strip() and not outline:
+        return _fallback_brief_plan(messages, settings, language, brief)
+
+    return {
+        "reply": str(data.get("reply") or ""),
+        "ready": bool(data.get("ready")),
+        "needs_confirmation": bool(data.get("needs_confirmation")),
+        "final_prompt": str(data.get("final_prompt") or ""),
+        "outline": outline,
+        "visual_advice": data.get("visual_advice") if isinstance(data.get("visual_advice"), dict) else {},
+        "brief": brief,
+    }
+
+
+def _json_status_response(payload: dict[str, Any]) -> dict[str, Any]:
+    events = payload.get("events", [])
+    latest_event = events[-1] if events else {}
+    status = payload.get("status")
+
+    # Augment failure_analysis with computed diagnostics for failed/cancelled tasks
+    failure_analysis = payload.get("failure_analysis") or None
+    if status in {"failed", "cancelled"}:
+        diagnostics = _compute_retry_diagnostics(payload)
+        if diagnostics.get("suggestions"):
+            if not failure_analysis:
+                failure_analysis = {}
+            existing = list(failure_analysis.get("suggestions") or [])
+            failure_analysis["suggestions"] = existing + diagnostics["suggestions"]
+
+    return {
+        "task_id": payload.get("job_id"),
+        "status": status,
+        "created_at": payload.get("created_at"),
+        "updated_at": payload.get("updated_at"),
+        "output_path": payload.get("output_path") if payload.get("status") == "completed" else None,
+        "owner_user_id": payload.get("owner_user_id") or "",
+        "quota_debited": bool(payload.get("quota_debited")),
+        "quota_debit_credits": int(payload.get("quota_debit_credits") or 0),
+        "quota_credit_cost_model": payload.get("quota_credit_cost_model") or None,
+        "quota_refunded": bool(payload.get("quota_refunded")),
+        "quota_refund_credits": int(payload.get("quota_refund_credits") or 0),
+        "error_code": payload.get("error_code") or None,
+        "error_message": payload.get("error_message") or None,
+        "failure_analysis": failure_analysis,
+        "metrics": payload.get("metrics") or {},
+        "latest_event": latest_event,
+        "events": events,
+        "failure_diagnostics": _compute_retry_diagnostics(payload) if status in {"failed", "cancelled"} else None,
+    }
+
+
+def _templates_response(jobs_dir: Path | None = None, handler: BaseHTTPRequestHandler | None = None) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for kind, folder in (("brand", "brands"), ("layout", "layouts"), ("deck", "decks")):
+        base = TEMPLATES_DIR / folder
+        if not base.exists():
+            continue
+        for path in sorted(base.iterdir(), key=lambda item: item.name.lower()):
+            if not path.is_dir():
+                continue
+            design_spec = path / "design_spec.md"
+            title = path.name
+            description = ""
+            if design_spec.exists():
+                description = _template_description(design_spec)
+            items.append({
+                "id": path.name,
+                "kind": kind,
+                "title": title,
+                "description": description or _default_template_description(kind),
+                "path": str(path),
+            })
+    if jobs_dir is not None:
+        owner_id = ""
+        if handler is not None:
+            user, _store = _current_user(handler)
+            owner_id = str(user.get("id") or "") if user else ""
+        for metadata_path in sorted((jobs_dir / "_templates").glob("*/template.json")):
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(metadata, dict) or not owner_id or str(metadata.get("owner_user_id") or "") != owner_id:
+                continue
+            items.append({
+                "id": metadata.get("template_id") or metadata_path.parent.name,
+                "kind": "deck",
+                "title": metadata.get("name") or metadata_path.parent.name,
+                "description": metadata.get("description") or "",
+                "path": str(metadata_path.parent),
+                "source": "published_route_session",
+            })
+    return {"templates": items}
+
+
+def _tasks_response(jobs_dir: Path, store: str, *, owner_user_id: str = "") -> dict[str, Any]:
+    if store == "postgres":
+        tasks = []
+        for row in list_tasks(limit=50, owner_user_id=owner_user_id):
+            task_id = str(row.get("id") or "")
+            status = str(row.get("status") or "")
+            tasks.append({
+                "task_id": task_id,
+                "status": status,
+                "owner_user_id": row.get("owner_user_id") or "",
+                "quota_debited": bool(row.get("quota_debited")),
+                "quota_debit_credits": int(row.get("quota_debit_credits") or 0),
+                "quota_refunded": bool(row.get("quota_refunded")),
+                "quota_refund_credits": int(row.get("quota_refund_credits") or 0),
+                "created_at": str(row.get("created_at")) if row.get("created_at") else None,
+                "updated_at": str(row.get("updated_at")) if row.get("updated_at") else None,
+                "started_at": str(row.get("started_at")) if row.get("started_at") else None,
+                "completed_at": str(row.get("completed_at")) if row.get("completed_at") else None,
+                "attempts": row.get("attempts"),
+                "max_attempts": row.get("max_attempts"),
+                "output_path": row.get("output_path") if status == "completed" else None,
+                "generation_report_path": row.get("generation_report_path") if status == "completed" else None,
+                "error_code": row.get("error_code"),
+                "error_message": row.get("error_message"),
+                "status_url": f"/generation-tasks/{task_id}",
+                "preview_url": f"/generation-tasks/{task_id}/preview",
+                "download_url": f"/generation-tasks/{task_id}/download",
+            })
+        return {"tasks": tasks, "store": "postgres"}
+    tasks: list[dict[str, Any]] = []
+    if not jobs_dir.exists():
+        return {"tasks": tasks, "store": "json"}
+    for status_path in sorted(jobs_dir.glob("*/job_status.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(status_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if owner_user_id and str(payload.get("owner_user_id") or "") != owner_user_id:
+            continue
+        tasks.append({
+            "task_id": payload.get("job_id") or status_path.parent.name,
+            "status": payload.get("status"),
+            "owner_user_id": payload.get("owner_user_id") or "",
+            "quota_debited": bool(payload.get("quota_debited")),
+            "quota_debit_credits": int(payload.get("quota_debit_credits") or 0),
+            "quota_credit_cost_model": payload.get("quota_credit_cost_model") or None,
+            "quota_refunded": bool(payload.get("quota_refunded")),
+            "quota_refund_credits": int(payload.get("quota_refund_credits") or 0),
+            "created_at": payload.get("created_at"),
+            "updated_at": payload.get("updated_at"),
+            "output_path": payload.get("output_path") if payload.get("status") == "completed" else None,
+            "error_code": payload.get("error_code") or None,
+            "error_message": payload.get("error_message") or None,
+            "metrics": payload.get("metrics") or {},
+            "latest_event": (payload.get("events") or [{}])[-1],
+            "status_url": f"/generation-tasks/{payload.get('job_id') or status_path.parent.name}",
+            "preview_url": f"/generation-tasks/{payload.get('job_id') or status_path.parent.name}/preview",
+            "download_url": f"/generation-tasks/{payload.get('job_id') or status_path.parent.name}/download",
+        })
+        if len(tasks) >= 50:
+            break
+    return {"tasks": tasks, "store": "json"}
+
+
+def _import_template_response(jobs_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    material = payload.get("material") if isinstance(payload.get("material"), dict) else {}
+    name = str(material.get("name") or payload.get("name") or "template.pptx")
+    if not name.lower().endswith(".pptx"):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Template import currently requires a .pptx file")
+    encoded = str(material.get("content_base64") or payload.get("content_base64") or "")
+    if not encoded:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Missing content_base64")
+    if "," in encoded and encoded.lstrip().startswith("data:"):
+        encoded = encoded.split(",", 1)[1]
+    try:
+        import base64
+        data = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid base64 PPTX") from exc
+
+    import_id = f"template_import_{uuid.uuid4().hex[:10]}"
+    work_dir = jobs_dir / "_template_imports" / import_id
+    work_dir.mkdir(parents=True, exist_ok=True)
+    pptx_path = work_dir / Path(name).name
+    pptx_path.write_bytes(data)
+    output_dir = work_dir / "imported"
+
+    script = SKILL_DIR / "scripts" / "pptx_template_import.py"
+    cmd = [sys.executable, str(script), str(pptx_path), "-o", str(output_dir)]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    log_path = work_dir / "pptx_template_import.log"
+    log_path.write_text(
+        redact_secrets("\n".join([f"$ {' '.join(cmd)}", "", "STDOUT:", result.stdout, "", "STDERR:", result.stderr])),
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        raise ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, redact_secrets(f"pptx_template_import.py failed: {result.stderr or result.stdout}"))
+
+    return {
+        "import_id": import_id,
+        "source_pptx": str(pptx_path),
+        "output_dir": str(output_dir),
+        "summary_path": str(output_dir / "summary.md"),
+        "manifest_path": str(output_dir / "manifest.json"),
+        "log_path": str(log_path),
+    }
+
+
+def _template_description(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    lines = [
+        line.strip(" #-\t")
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("|")
+    ]
+    for line in lines:
+        if 8 <= len(line) <= 120 and not line.lower().startswith(("canvas", "color", "font")):
+            return line[:120]
+    return ""
+
+
+def _default_template_description(kind: str) -> str:
+    return {
+        "brand": "锁定品牌色、字体和标识资产",
+        "layout": "复用版式结构和页面节奏",
+        "deck": "复用整套视觉系统和页面角色",
+    }.get(kind, "模板")
+
+
+def _postgres_status_response(task_id: str) -> dict[str, Any]:
+    task = get_task(task_id)
+    if not task:
+        raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {task_id}")
+    events = list_events(task_id)
+    latest_event = events[-1] if events else {}
+    status = str(task.get("status"))
+    return {
+        "task_id": task.get("id"),
+        "status": status,
+        "store": "postgres",
+        "owner_user_id": task.get("owner_user_id") or "",
+        "quota_debited": bool(task.get("quota_debited")),
+        "created_at": str(task.get("created_at")) if task.get("created_at") else None,
+        "updated_at": str(task.get("updated_at")) if task.get("updated_at") else None,
+        "output_path": task.get("output_path") if status == "completed" else None,
+        "generation_report_path": task.get("generation_report_path") if status == "completed" else None,
+        "error_code": task.get("error_code"),
+        "error_message": task.get("error_message"),
+        "metrics": _postgres_task_metrics(task),
+        "latest_event": _serialize_row(latest_event),
+        "events": [_serialize_row(event) for event in events],
+    }
+
+
+def _postgres_task_metrics(task: dict[str, Any]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {
+        "attempts": task.get("attempts"),
+        "max_attempts": task.get("max_attempts"),
+    }
+    output_path = Path(str(task.get("output_path") or ""))
+    if output_path.exists():
+        metrics["pptx_size_bytes"] = output_path.stat().st_size
+    started_at = task.get("started_at")
+    completed_at = task.get("completed_at")
+    if started_at and completed_at:
+        try:
+            metrics["duration_seconds"] = max(0.0, (completed_at - started_at).total_seconds())
+        except Exception:
+            pass
+    return metrics
+
+
+def _download_file(task_id: str, jobs_dir: Path, store: str) -> Path:
+    if store == "postgres":
+        task = get_task(task_id)
+        if not task:
+            raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {task_id}")
+        if str(task.get("status")) != "completed":
+            raise ApiError(HTTPStatus.CONFLICT, "Task is not completed yet")
+        output_path = Path(str(task.get("output_path") or ""))
+    else:
+        payload = _load_status_payload(jobs_dir, task_id)
+        if payload.get("status") != "completed":
+            raise ApiError(HTTPStatus.CONFLICT, "Task is not completed yet")
+        output_path = Path(payload.get("output_path", ""))
+
+    if not output_path.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Output file is missing")
+    return output_path
+
+
+def _narrated_download_file(task_id: str, jobs_dir: Path, store: str) -> Path:
+    output_path = _download_file(task_id, jobs_dir, store)
+    narrated_path = output_path.with_name(f"{output_path.stem}_narrated{output_path.suffix}")
+    if not narrated_path.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Narrated PPTX file is missing")
+    return narrated_path
+
+
+def _download_response(task_id: str, jobs_dir: Path, store: str) -> dict[str, Any]:
+    output_path = _download_file(task_id, jobs_dir, store)
+    response = {
+        "task_id": task_id,
+        "download_url": f"/generation-tasks/{task_id}/download-file",
+        "artifact_manifest_url": f"/generation-tasks/{task_id}/artifacts",
+        "artifact": _artifact_item(
+            task_id=task_id,
+            kind="pptx",
+            path=output_path,
+            url=f"/generation-tasks/{task_id}/download-file",
+        ),
+        "local_path": str(output_path),
+        "size_bytes": output_path.stat().st_size,
+        "narrated_ready": False,
+    }
+    narrated_path = output_path.with_name(f"{output_path.stem}_narrated{output_path.suffix}")
+    if narrated_path.exists():
+        response.update({
+            "narrated_ready": True,
+            "narrated_download_url": f"/generation-tasks/{task_id}/download-narrated-file",
+            "narrated_local_path": str(narrated_path),
+            "narrated_size_bytes": narrated_path.stat().st_size,
+            "narrated_artifact": _artifact_item(
+                task_id=task_id,
+                kind="narrated_pptx",
+                path=narrated_path,
+                url=f"/generation-tasks/{task_id}/download-narrated-file",
+            ),
+        })
+    return response
+
+
+def _task_project_dir(task_id: str, jobs_dir: Path, store: str) -> Path:
+    if store == "postgres":
+        task = get_task(task_id)
+        if not task:
+            raise ApiError(HTTPStatus.NOT_FOUND, f"Task not found: {task_id}")
+        return Path(str(task.get("project_dir") or jobs_dir / task_id))
+
+    payload = _load_status_payload(jobs_dir, task_id)
+    if payload.get("status") != "completed":
+        raise ApiError(HTTPStatus.CONFLICT, "Task is not completed yet")
+    return Path(str(payload.get("project_dir") or jobs_dir / task_id))
+
+
+def _preview_response(task_id: str, jobs_dir: Path, store: str) -> dict[str, Any]:
+    project_dir = _task_project_dir(task_id, jobs_dir, store)
+    svg_dir = project_dir / "svg_output"
+    if not svg_dir.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Preview assets are missing")
+
+    slides = []
+    notes_dir = project_dir / "notes"
+    for index, svg_path in enumerate(sorted(svg_dir.glob("*.svg")), start=1):
+        note_path = notes_dir / f"{svg_path.stem}.md"
+        note_text = ""
+        if note_path.exists():
+            try:
+                note_text = note_path.read_text(encoding="utf-8").strip()
+            except Exception:
+                note_text = ""
+        slide = {
+            "index": index,
+            "title": f"Slide {index}",
+            "file": svg_path.name,
+            "url": f"/generation-tasks/{task_id}/assets/preview/{svg_path.name}",
+        }
+        if note_text:
+            slide["notes_file"] = note_path.name
+            slide["notes_url"] = f"/generation-tasks/{task_id}/assets/notes/{note_path.name}"
+            slide["notes_text"] = note_text
+        slides.append(slide)
+
+    if not slides:
+        raise ApiError(HTTPStatus.NOT_FOUND, "Preview assets are missing")
+
+    image_files = _image_files_response(task_id, project_dir)
+
+    audio_files = []
+    audio_dir = project_dir / "audio"
+    if audio_dir.exists():
+        for audio_path in sorted(audio_dir.glob("*")):
+            if audio_path.is_file() and audio_path.suffix.lower() in {".mp3", ".wav", ".m4a"}:
+                audio_files.append({
+                    "file": audio_path.name,
+                    "url": f"/generation-tasks/{task_id}/assets/audio/{audio_path.name}",
+                    "local_path": str(audio_path),
+                    "size_bytes": audio_path.stat().st_size,
+                })
+
+    return {
+        "task_id": task_id,
+        "status": "completed",
+        "title": "Generated PPT",
+        "description": "Generated by PPT Master",
+        "format": "svg",
+        "folder": f"/generation-tasks/{task_id}/assets/preview",
+        "slides": slides,
+        "images": image_files,
+        "audio": audio_files,
+        "pptx_download_url": f"/generation-tasks/{task_id}/download-file",
+        "pptx_metadata_url": f"/generation-tasks/{task_id}/download",
+        "artifact_manifest_url": f"/generation-tasks/{task_id}/artifacts",
+        "narrated_pptx_download_url": f"/generation-tasks/{task_id}/download-narrated-file"
+        if (project_dir / "output" / "result_narrated.pptx").exists()
+        else "",
+    }
+
+
+def _artifact_item(*, task_id: str, kind: str, path: Path, url: str) -> dict[str, Any]:
+    stored = publish_artifact(task_id=task_id, kind=kind, path=path, local_url=url)
+    item = {
+        "kind": kind,
+        "file": path.name,
+        "url": stored.url,
+        "content_type": _content_type(path),
+        "size_bytes": path.stat().st_size,
+        "storage": stored.storage,
+    }
+    if stored.remote_key:
+        item["remote_key"] = stored.remote_key
+    if stored.signed:
+        item["signed"] = True
+        item["expires_at"] = stored.expires_at
+    return item
+
+
+def _artifacts_response(task_id: str, jobs_dir: Path, store: str) -> dict[str, Any]:
+    project_dir = _task_project_dir(task_id, jobs_dir, store)
+    artifacts: list[dict[str, Any]] = []
+
+    try:
+        output_path = _download_file(task_id, jobs_dir, store)
+        artifacts.append(_artifact_item(
+            task_id=task_id,
+            kind="pptx",
+            path=output_path,
+            url=f"/generation-tasks/{task_id}/download-file",
+        ))
+        narrated_path = output_path.with_name(f"{output_path.stem}_narrated{output_path.suffix}")
+        if narrated_path.exists():
+            artifacts.append(_artifact_item(
+                task_id=task_id,
+                kind="narrated_pptx",
+                path=narrated_path,
+                url=f"/generation-tasks/{task_id}/download-narrated-file",
+            ))
+    except ApiError:
+        pass
+
+    svg_dir = project_dir / "svg_output"
+    if svg_dir.exists():
+        for svg_path in sorted(svg_dir.glob("*.svg")):
+            artifacts.append(_artifact_item(
+                task_id=task_id,
+                kind="preview_svg",
+                path=svg_path,
+                url=f"/generation-tasks/{task_id}/assets/preview/{svg_path.name}",
+            ))
+
+    images_dir = project_dir / "images"
+    if images_dir.exists():
+        for image_path in sorted(images_dir.glob("*")):
+            if image_path.is_file() and image_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+                artifacts.append(_artifact_item(
+                    task_id=task_id,
+                    kind="image",
+                    path=image_path,
+                    url=f"/generation-tasks/{task_id}/assets/images/{image_path.name}",
+                ))
+
+    notes_dir = project_dir / "notes"
+    if notes_dir.exists():
+        for note_path in sorted(notes_dir.glob("*.md")):
+            if note_path.is_file():
+                artifacts.append(_artifact_item(
+                    task_id=task_id,
+                    kind="speaker_notes",
+                    path=note_path,
+                    url=f"/generation-tasks/{task_id}/assets/notes/{note_path.name}",
+                ))
+
+    audio_dir = project_dir / "audio"
+    if audio_dir.exists():
+        for audio_path in sorted(audio_dir.glob("*")):
+            if audio_path.is_file() and audio_path.suffix.lower() in {".mp3", ".wav", ".m4a"}:
+                artifacts.append(_artifact_item(
+                    task_id=task_id,
+                    kind="audio",
+                    path=audio_path,
+                    url=f"/generation-tasks/{task_id}/assets/audio/{audio_path.name}",
+                ))
+
+    manifest = {
+        "task_id": task_id,
+        "storage": storage_mode(),
+        "artifacts": artifacts,
+    }
+    manifest_path = project_dir / "artifacts_manifest.json"
+    try:
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        manifest["manifest_path"] = str(manifest_path)
+    except Exception:
+        pass
+    return manifest
+
+
+def _preview_asset(task_id: str, file_name: str, jobs_dir: Path, store: str) -> Path:
+    safe_name = Path(file_name).name
+    if safe_name != file_name or not safe_name.endswith(".svg"):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid preview asset name")
+    project_dir = _task_project_dir(task_id, jobs_dir, store)
+    asset = project_dir / "svg_output" / safe_name
+    if not asset.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Preview asset not found")
+    return asset
+
+
+def _image_files_response(task_id: str, project_dir: Path) -> list[dict[str, Any]]:
+    images_dir = project_dir / "images"
+    if not images_dir.exists():
+        return []
+    sources: dict[str, Any] = {}
+    sources_path = images_dir / "image_sources.json"
+    if sources_path.exists():
+        try:
+            data = json.loads(sources_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                sources = data
+        except Exception:
+            sources = {}
+    items: list[dict[str, Any]] = []
+    for image_path in sorted(images_dir.glob("*")):
+        if not image_path.is_file() or image_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+            continue
+        source = sources.get(image_path.name) if isinstance(sources.get(image_path.name), dict) else {}
+        items.append({
+            "file": image_path.name,
+            "url": f"/generation-tasks/{task_id}/assets/images/{image_path.name}",
+            "size_bytes": image_path.stat().st_size,
+            "slide": source.get("slide") or source.get("page"),
+            "source": source.get("source") or "",
+            "query": source.get("query") or "",
+            "attribution": source.get("attribution") or source.get("credit") or "",
+        })
+    return items
+
+
+def _image_asset(task_id: str, file_name: str, jobs_dir: Path, store: str) -> Path:
+    safe_name = Path(file_name).name
+    if safe_name != file_name or Path(safe_name).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid image asset name")
+    project_dir = _task_project_dir(task_id, jobs_dir, store)
+    asset = project_dir / "images" / safe_name
+    if not asset.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Image asset not found")
+    return asset
+
+
+def _notes_asset(task_id: str, file_name: str, jobs_dir: Path, store: str) -> Path:
+    safe_name = Path(file_name).name
+    if safe_name != file_name or not safe_name.endswith(".md"):
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid notes asset name")
+    project_dir = _task_project_dir(task_id, jobs_dir, store)
+    asset = project_dir / "notes" / safe_name
+    if not asset.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Notes asset not found")
+    return asset
+
+
+def _audio_asset(task_id: str, file_name: str, jobs_dir: Path, store: str) -> Path:
+    safe_name = Path(file_name).name
+    if safe_name != file_name or Path(safe_name).suffix.lower() not in {".mp3", ".wav", ".m4a"}:
+        raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid audio asset name")
+    project_dir = _task_project_dir(task_id, jobs_dir, store)
+    asset = project_dir / "audio" / safe_name
+    if not asset.exists():
+        raise ApiError(HTTPStatus.NOT_FOUND, "Audio asset not found")
+    return asset
+
+
+def _content_type(path: Path) -> str:
+    if path.suffix.lower() == ".svg":
+        return "image/svg+xml; charset=utf-8"
+    if path.suffix.lower() == ".mp3":
+        return "audio/mpeg"
+    if path.suffix.lower() == ".wav":
+        return "audio/wav"
+    if path.suffix.lower() == ".m4a":
+        return "audio/mp4"
+    if path.suffix.lower() == ".pptx":
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    if path.suffix.lower() == ".md":
+        return "text/markdown; charset=utf-8"
+    if path.suffix.lower() in {".png"}:
+        return "image/png"
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if path.suffix.lower() == ".webp":
+        return "image/webp"
+    if path.suffix.lower() == ".gif":
+        return "image/gif"
+    return "application/octet-stream"
+
+
+def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: str(value) if not isinstance(value, (dict, list, str, int, float, bool, type(None))) else value for key, value in row.items()}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PPT Master local generation API server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--jobs-dir", default=str(DEFAULT_JOBS_DIR))
+    parser.add_argument("--store", choices=["json", "postgres"], default="json")
+    parser.add_argument("--access-token", default=os.environ.get("PPT_MASTER_ACCESS_TOKEN", ""))
+    parser.add_argument("--frontend-base-url", default=os.environ.get("PPT_MASTER_FRONTEND_BASE_URL", "http://127.0.0.1:8000"))
+    args = parser.parse_args()
+
+    GenerationApiHandler.jobs_dir = Path(args.jobs_dir)
+    GenerationApiHandler.jobs_dir.mkdir(parents=True, exist_ok=True)
+    GenerationApiHandler.store = args.store
+    GenerationApiHandler.access_token = args.access_token.strip()
+    GenerationApiHandler.frontend_base_url = args.frontend_base_url.strip().rstrip("/") or "http://127.0.0.1:8000"
+
+    server = ThreadingHTTPServer((args.host, args.port), GenerationApiHandler)
+    print(f"PPT Master API listening on http://{args.host}:{args.port}")
+    print(f"Store: {GenerationApiHandler.store}")
+    print(f"Jobs dir: {GenerationApiHandler.jobs_dir}")
+    print(f"Access token: {'enabled' if GenerationApiHandler.access_token else 'disabled'}")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
