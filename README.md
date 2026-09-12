@@ -366,10 +366,6 @@ PPT Master reads the current process environment first, then the first `.env` fo
 
 ---
 
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to get involved.
-
 ## License
 
 [MIT](LICENSE)

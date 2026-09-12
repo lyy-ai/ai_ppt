@@ -47,7 +47,9 @@ ssh bestppt-gateway 'hostname && systemctl status caddy --no-pager'
 Current server roles:
 
 - `bestppt-backend`: high-performance backend host. Keep API code, virtualenv,
-  jobs, logs, and `.env.server` under `/data/liyangyang/ppt_project/`.
+  jobs, and logs under `/data/liyangyang/ppt_project/`. The current systemd
+  unit reads its server-only environment from `/data/liyangyang/ppt_project/.env.server`;
+  keep that file outside the repository and provision it separately.
 - `bestppt-gateway`: lightweight public gateway. Serve static frontend from
   `/var/www/ppt-master` and use Caddy to terminate HTTPS for
   `ppt.aigcstory.site`, `ppt-cn.aigcstory.site`, and `api.aigcstory.site`.
@@ -114,11 +116,42 @@ LLM_MODEL_SLIDE=<cost-effective-slide-model>
 LLM_MODEL_SLIDE_FALLBACK=<stronger-slide-model>
 
 # Optional upload scanning and cost telemetry
-PPT_MASTER_CLAMSCAN_BIN=/usr/bin/clamscan
+PPT_MASTER_CLAMSCAN_BIN=/data/liyangyang/ppt_project/ppt-master/scripts/clamscan-docker-wrapper.sh
 PPT_MASTER_COST_PER_PAGE_ATTEMPT_CENTS=0.02
+PPT_MASTER_COST_PER_1K_PROMPT_TOKENS_CENTS=0.10
+PPT_MASTER_COST_PER_1K_COMPLETION_TOKENS_CENTS=0.30
 PPT_MASTER_COST_PER_IMAGE_CENTS=1.00
 PPT_MASTER_COST_PER_AUDIO_CENTS=0.20
+
+# Optional transactional email for team invitations
+PPT_MASTER_SMTP_HOST=smtp.example.com
+PPT_MASTER_SMTP_PORT=587
+PPT_MASTER_SMTP_STARTTLS=1
+PPT_MASTER_SMTP_FROM=no-reply@example.com
+PPT_MASTER_SMTP_USERNAME=<smtp-user>
+PPT_MASTER_SMTP_PASSWORD=<smtp-password>
 ```
+
+Install and verify the upload scanner before enabling the production gate:
+
+```bash
+sudo apt-get install -y clamav
+sudo systemctl enable --now clamav-daemon
+command -v clamscan
+```
+
+The readiness checker treats missing scanner, durable storage, cost telemetry,
+SMTP, and payment configuration as warnings for private previews and failures
+when `PPT_MASTER_DEPLOYMENT=production`. Payment remains intentionally disabled
+until a provider is selected.
+
+To keep payment out of the current release, leave this unset or use:
+
+```env
+PPT_MASTER_PAYMENT_ENABLED=0
+```
+
+The checkout endpoint then returns `503` without creating a checkout record.
 
 ## Optional Tencent COS / R2 / S3 Storage
 
@@ -171,13 +204,23 @@ Before starting a public/private-beta service, run the readiness checker:
 python3 scripts/check-cloud-generator-readiness.py
 ```
 
+On the current backend systemd unit, inspect the exact server environment file
+without printing its secret values:
+
+```bash
+python3 scripts/check-cloud-generator-readiness.py \
+  --env-file /data/liyangyang/ppt_project/.env.server
+```
+
 Set `PPT_MASTER_DEPLOYMENT=production` in the server-only environment for a
 strict release gate. In that profile every otherwise-acceptable private-beta
 warning (local storage, JSON route sessions, missing scanner, mock payment,
 or local email outbox) becomes a failure instead of allowing a public start.
 
-It checks auth token strength, auth requirement, S3/COS config, optional ClamAV
-scanner, unit-cost telemetry, and LLM credentials.
+It checks auth token strength, auth requirement, S3/COS or explicitly marked
+single-server durable local storage, optional ClamAV scanner, unit-cost
+telemetry, and LLM credentials. Single-server local storage is not suitable
+for multi-host failover; use S3/COS for that deployment shape.
 
 The running API also exposes non-secret provider status for frontend/ops checks:
 

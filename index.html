@@ -1674,10 +1674,6 @@
                     <button class="auth-tab active" type="button" data-auth-tab="login" data-i18n-home="authTabLogin">Password login</button>
                     <button class="auth-tab" type="button" data-auth-tab="register" data-i18n-home="authTabRegister">Create account</button>
                 </div>
-                <div class="auth-methods" role="tablist" aria-label="Sign in method">
-                    <button class="auth-method active" type="button" data-auth-method="email" data-i18n-home="authMethodEmail">Email</button>
-                    <button class="auth-method" type="button" data-auth-method="phone" data-i18n-home="authMethodPhone">Phone code</button>
-                </div>
                 <div id="auth-email-fields">
                     <label for="auth-email" data-i18n-home="emailLabel">Email</label>
                     <input id="auth-email" type="email" autocomplete="email" data-i18n-placeholder="emailPlaceholder" placeholder="name@example.com">
@@ -1692,15 +1688,6 @@
                     <div class="auth-field">
                         <input id="auth-confirm-password" class="has-action" type="password" autocomplete="new-password" data-i18n-placeholder="confirmPasswordPlaceholder" placeholder="Enter the password again">
                         <button class="password-toggle" type="button" data-toggle-password="auth-confirm-password" data-i18n-title="showPassword" aria-label="Show password">👁</button>
-                    </div>
-                </div>
-                <div id="auth-phone-fields" hidden>
-                    <label for="auth-phone" data-i18n-home="phoneLabel">Phone number</label>
-                    <input id="auth-phone" type="tel" autocomplete="tel" data-i18n-placeholder="phonePlaceholder" placeholder="13800000000">
-                    <label for="auth-sms-code" data-i18n-home="smsCodeLabel">Verification code</label>
-                    <div class="auth-sms-row">
-                        <input id="auth-sms-code" type="text" inputmode="numeric" autocomplete="one-time-code" data-i18n-placeholder="smsCodePlaceholder" placeholder="6-digit code">
-                        <button class="auth-secondary-btn" type="button" id="auth-send-code" data-i18n-home="sendCode">Send code</button>
                     </div>
                 </div>
                 <label class="remember-row">
@@ -1849,30 +1836,20 @@
                 examplesEmptyFilter: 'No examples in this category yet.',
                 authTitleLogin: 'Sign in to Best PPT',
                 authTitleRegister: 'Create your Best PPT account',
-                authTitlePhone: 'Login or sign up with phone',
                 authKicker: 'Use one account for generation, credits, billing, and invitations.',
                 authTabLogin: 'Password login',
                 authTabRegister: 'Create account',
-                authMethodEmail: 'Email',
-                authMethodPhone: 'Phone code',
                 emailLabel: 'Email',
                 emailPlaceholder: 'name@example.com',
                 passwordLabel: 'Password',
                 passwordPlaceholder: 'At least 6 characters',
                 confirmPasswordLabel: 'Confirm password',
                 confirmPasswordPlaceholder: 'Enter the password again',
-                phoneLabel: 'Phone number',
-                phonePlaceholder: 'Mainland China phone number',
-                smsCodeLabel: 'Verification code',
-                smsCodePlaceholder: '6-digit code',
-                sendCode: 'Send code',
-                resendCode: 'Resend in {seconds}s',
                 showPassword: 'Show password',
                 hidePassword: 'Hide password',
                 rememberMe: 'Remember this email',
                 authSubmitLogin: 'Login',
                 authSubmitRegister: 'Create account',
-                authSubmitPhone: 'Login / sign up with code',
                 authSwitchRegister: 'No account yet?',
                 authSwitchRegisterAction: 'Create one',
                 authSwitchLogin: 'Already have an account?',
@@ -1883,18 +1860,14 @@
                 authRegisterFailed: 'Sign-up failed',
                 authPendingConfirmation: 'Account created. Please confirm your email before signing in.',
                 authRequired: 'Please enter email and password.',
-                phoneRequired: 'Please enter phone number and verification code.',
-                phoneInvalid: 'Please enter a valid mainland China phone number.',
-                codeSent: 'Verification code sent. Please check your phone.',
-                codeNotSent: 'Please send the verification code first.',
                 passwordMismatch: 'The two passwords do not match.',
                 authCloudBaseMissing: 'CloudBase Auth is not configured yet.',
-                authInvalidCredentials: 'Email or password is incorrect. You can also use phone code login.',
+                authInvalidCredentials: 'Email or password is incorrect.',
                 authUserNotFound: 'This account does not exist yet. Please create an account first.',
                 authAccountExists: 'This account already exists. Please log in instead.',
                 authWeakPassword: 'Please use a password with at least 6 characters.',
                 authCodeInvalid: 'The verification code is incorrect or expired. Please try again.',
-                authVerificationRequired: 'Registration requires a verification code. Please use phone code sign-up for now.',
+                authVerificationRequired: 'Registration requires email verification. Please check your inbox and try again.',
                 authTooFrequent: 'Too many attempts. Please wait a moment and try again.',
                 authNetworkError: 'Could not reach the login service. Please check your network and try again.',
                 authSessionMissing: 'Login succeeded, but Best PPT did not receive an app session. Please try again.',
@@ -1993,30 +1966,20 @@
                 examplesEmptyFilter: '这个分类下暂时还没有案例。',
                 authTitleLogin: '登录 Best PPT',
                 authTitleRegister: '注册 Best PPT',
-                authTitlePhone: '手机验证码登录/注册',
                 authKicker: '一个账号同步生成记录、会员额度、支付和邀请奖励。',
                 authTabLogin: '密码登录',
                 authTabRegister: '注册账号',
-                authMethodEmail: '邮箱登录',
-                authMethodPhone: '手机验证码',
                 emailLabel: '邮箱',
                 emailPlaceholder: 'name@example.com',
                 passwordLabel: '密码',
                 passwordPlaceholder: '至少 6 位密码',
                 confirmPasswordLabel: '确认密码',
                 confirmPasswordPlaceholder: '请再次输入密码',
-                phoneLabel: '手机号',
-                phonePlaceholder: '请输入大陆手机号',
-                smsCodeLabel: '验证码',
-                smsCodePlaceholder: '请输入 6 位验证码',
-                sendCode: '发送验证码',
-                resendCode: '{seconds}s 后重发',
                 showPassword: '显示密码',
                 hidePassword: '隐藏密码',
                 rememberMe: '记住邮箱',
                 authSubmitLogin: '登录',
                 authSubmitRegister: '注册',
-                authSubmitPhone: '验证码登录/注册',
                 authSwitchRegister: '还没有账号？',
                 authSwitchRegisterAction: '去注册',
                 authSwitchLogin: '已经有账号？',
@@ -2027,18 +1990,14 @@
                 authRegisterFailed: '注册失败',
                 authPendingConfirmation: '账号已创建，请先完成邮箱确认后再登录。',
                 authRequired: '请输入邮箱和密码。',
-                phoneRequired: '请输入手机号和短信验证码。',
-                phoneInvalid: '请输入正确的大陆手机号。',
-                codeSent: '验证码已发送，请查看手机短信。',
-                codeNotSent: '请先发送验证码。',
                 passwordMismatch: '两次输入的密码不一致。',
                 authCloudBaseMissing: '登录服务还没有配置好，请稍后再试。',
-                authInvalidCredentials: '邮箱或密码不正确，也可以试试手机验证码登录。',
+                authInvalidCredentials: '邮箱或密码不正确。',
                 authUserNotFound: '这个账号还没有注册，请先注册账号。',
                 authAccountExists: '这个账号已经注册过了，请直接登录。',
                 authWeakPassword: '请设置至少 6 位密码。',
                 authCodeInvalid: '验证码不正确或已过期，请重新输入。',
-                authVerificationRequired: '注册需要验证码，请先使用手机验证码注册/登录。',
+                authVerificationRequired: '注册需要完成邮箱验证，请查收邮件后重试。',
                 authTooFrequent: '操作太频繁了，请稍等一会儿再试。',
                 authNetworkError: '暂时连不上登录服务，请检查网络后重试。',
                 authSessionMissing: '登录已完成，但 Best PPT 没有拿到业务登录态，请重新登录一次。',
@@ -2070,10 +2029,6 @@
         let activeFilter = 'all';
         let examplesSource = { mode: 'network', reason: '' };
         let authMode = 'login';
-        let authMethod = 'email';
-        let smsVerificationInfo = null;
-        let smsVerifyOtp = null;
-        let smsCountdownTimer = null;
         let homeThemeMode = localStorage.getItem(THEME_KEY) || 'system';
         const queryHomeLang = new URLSearchParams(window.location.search).get('lang');
         let homeLang = queryHomeLang || localStorage.getItem(HOME_LANG_KEY) || 'en';
@@ -2660,39 +2615,21 @@
             authMode = mode === 'register' ? 'register' : 'login';
             const copySet = homeCopy[homeLang];
             document.querySelectorAll('[data-auth-tab]').forEach(tab => tab.classList.toggle('active', tab.dataset.authTab === authMode));
-            document.getElementById('auth-title').textContent = authMethod === 'phone'
-                ? copySet.authTitlePhone
-                : copySet[authMode === 'register' ? 'authTitleRegister' : 'authTitleLogin'];
+            document.getElementById('auth-title').textContent = copySet[authMode === 'register' ? 'authTitleRegister' : 'authTitleLogin'];
             document.getElementById('auth-switch-copy').textContent = copySet[authMode === 'register' ? 'authSwitchLogin' : 'authSwitchRegister'];
             document.getElementById('auth-switch-btn').textContent = copySet[authMode === 'register' ? 'authSwitchLoginAction' : 'authSwitchRegisterAction'];
             document.getElementById('auth-message').textContent = '';
             document.getElementById('auth-password').autocomplete = authMode === 'register' ? 'new-password' : 'current-password';
-            document.getElementById('auth-confirm-wrap').hidden = authMode !== 'register' || authMethod !== 'email';
+            document.getElementById('auth-confirm-wrap').hidden = authMode !== 'register';
             document.getElementById('auth-confirm-password').value = '';
-            updateAuthMethodView();
-        }
-
-        function setAuthMethod(method) {
-            authMethod = method === 'phone' ? 'phone' : 'email';
-            smsVerificationInfo = null;
-            smsVerifyOtp = null;
-            document.getElementById('auth-message').textContent = '';
             updateAuthMethodView();
         }
 
         function updateAuthMethodView() {
             const copySet = homeCopy[homeLang];
-            document.querySelectorAll('[data-auth-method]').forEach(tab => tab.classList.toggle('active', tab.dataset.authMethod === authMethod));
-            document.getElementById('auth-title').textContent = authMethod === 'phone'
-                ? copySet.authTitlePhone
-                : copySet[authMode === 'register' ? 'authTitleRegister' : 'authTitleLogin'];
-            document.getElementById('auth-email-fields').hidden = authMethod !== 'email';
-            document.getElementById('auth-phone-fields').hidden = authMethod !== 'phone';
-            document.getElementById('auth-confirm-wrap').hidden = authMode !== 'register' || authMethod !== 'email';
-            document.getElementById('auth-submit').textContent = authMethod === 'phone'
-                ? copySet.authSubmitPhone
-                : copySet[authMode === 'register' ? 'authSubmitRegister' : 'authSubmitLogin'];
-            if (!smsCountdownTimer) document.getElementById('auth-send-code').textContent = copySet.sendCode;
+            document.getElementById('auth-title').textContent = copySet[authMode === 'register' ? 'authTitleRegister' : 'authTitleLogin'];
+            document.getElementById('auth-confirm-wrap').hidden = authMode !== 'register';
+            document.getElementById('auth-submit').textContent = copySet[authMode === 'register' ? 'authSubmitRegister' : 'authSubmitLogin'];
         }
 
         function setPasswordVisibility(inputId, visible) {
@@ -2800,20 +2737,6 @@
             return data.data && typeof data.data === 'object' ? data.data : data;
         }
 
-        function normalizePhoneNumber(value) {
-            const raw = String(value || "").trim();
-            if (!raw) return "";
-            const digits = raw.replace(/\D/g, "");
-            if (!digits) return "";
-            if (digits.startsWith("86") && digits.length === 13) return digits.slice(2);
-            return digits;
-        }
-
-        function validateMainlandPhone(value) {
-            const phone = normalizePhoneNumber(value);
-            return /^1\d{10}$/.test(phone) ? phone : "";
-        }
-
         function isAuthNetworkFailure(error) {
             const message = String(error?.message || error?.error_description || error || '').toLowerCase();
             return !error?.status && (
@@ -2863,68 +2786,10 @@
             };
         }
 
-        async function startSmsCodeViaBackend(phoneNum) {
-            const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
-            const response = await fetch(`${getHomeApiBase()}/auth/cloudbase/sms/start`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: phoneNum, referral_code: referralCode }),
-            });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const error = new Error(data.error || `HTTP ${response.status}`);
-                error.status = response.status;
-                throw error;
-            }
-            smsVerificationInfo = { backend_proxy: true, challenge_id: data.challenge_id };
-            smsVerifyOtp = async ({ token }) => {
-                const verifyResponse = await fetch(`${getHomeApiBase()}/auth/cloudbase/sms/verify`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone: phoneNum, code: token, challenge_id: data.challenge_id }),
-                });
-                const verifyData = await verifyResponse.json().catch(() => ({}));
-                if (!verifyResponse.ok) {
-                    const error = new Error(verifyData.error || `HTTP ${verifyResponse.status}`);
-                    error.status = verifyResponse.status;
-                    throw error;
-                }
-                return { data: verifyData, error: null };
-            };
-            return smsVerificationInfo;
-        }
-
-        async function sendSmsCode() {
-            if (!cloudbaseEnabled()) throw new Error(homeCopy[homeLang].authCloudBaseMissing);
-            const phoneNum = validateMainlandPhone(document.getElementById('auth-phone').value);
-            if (!phoneNum) throw new Error(homeCopy[homeLang].phoneInvalid);
-            return startSmsCodeViaBackend(phoneNum);
-        }
-
-        async function cloudbaseSmsSignIn() {
-            const phoneNum = validateMainlandPhone(document.getElementById('auth-phone').value);
-            const verificationCode = document.getElementById('auth-sms-code').value.trim();
-            if (!phoneNum) throw new Error(homeCopy[homeLang].phoneInvalid);
-            if (!verificationCode) throw new Error(homeCopy[homeLang].phoneRequired);
-            if (!smsVerificationInfo) await sendSmsCode();
-            if (typeof smsVerifyOtp !== 'function') throw new Error(homeCopy[homeLang].codeNotSent);
-            const result = await smsVerifyOtp({ token: verificationCode });
-            if (result?.error) throw result.error;
-            const data = result?.data || result;
-            if (data.session_token) {
-                const cloudbaseSession = normalizeCloudBaseSession(data.cloudbase_session || {});
-                if (cloudbaseSession) storeCloudBaseSession(cloudbaseSession);
-                return data;
-            }
-            throw new Error(homeCopy[homeLang].authSessionMissing);
-        }
-
         async function signInOrRegister(email, password) {
             const provider = activeAuthProvider();
             if (provider === 'cloudbase' && cloudbaseEnabled()) {
-                return authMethod === 'phone'
-                    ? cloudbaseSmsSignIn()
-                    : cloudbaseEmailSignInOrRegister(email, password);
+                return cloudbaseEmailSignInOrRegister(email, password);
             }
             const client = provider === 'supabase' ? await getSupabaseClient() : null;
             if (client) {
@@ -3021,25 +2886,6 @@
                 return homeCopy[homeLang].authNetworkError;
             }
             return message;
-        }
-
-        function startSmsCountdown(seconds = 60) {
-            const button = document.getElementById('auth-send-code');
-            clearInterval(smsCountdownTimer);
-            let remaining = seconds;
-            button.disabled = true;
-            button.textContent = homeCopy[homeLang].resendCode.replace('{seconds}', remaining);
-            smsCountdownTimer = setInterval(() => {
-                remaining -= 1;
-                if (remaining <= 0) {
-                    clearInterval(smsCountdownTimer);
-                    smsCountdownTimer = null;
-                    button.disabled = false;
-                    button.textContent = homeCopy[homeLang].sendCode;
-                    return;
-                }
-                button.textContent = homeCopy[homeLang].resendCode.replace('{seconds}', remaining);
-            }, 1000);
         }
 
         async function initProjects() {
@@ -3298,10 +3144,6 @@
             tab.addEventListener('click', () => setAuthMode(tab.dataset.authTab));
         });
 
-        document.querySelectorAll('[data-auth-method]').forEach(tab => {
-            tab.addEventListener('click', () => setAuthMethod(tab.dataset.authMethod));
-        });
-
         document.querySelectorAll('[data-toggle-password]').forEach(button => {
             button.addEventListener('click', () => {
                 const input = document.getElementById(button.dataset.togglePassword);
@@ -3331,21 +3173,6 @@
             }
         });
 
-        document.getElementById('auth-send-code').addEventListener('click', async () => {
-            const button = document.getElementById('auth-send-code');
-            const message = document.getElementById('auth-message');
-            button.disabled = true;
-            message.textContent = '';
-            try {
-                await sendSmsCode();
-                message.textContent = homeCopy[homeLang].codeSent;
-                startSmsCountdown();
-            } catch (error) {
-                button.disabled = false;
-                message.textContent = humanizeAuthError(error);
-            }
-        });
-
         document.getElementById('auth-submit').addEventListener('click', async () => {
             const email = document.getElementById('auth-email').value.trim();
             const password = document.getElementById('auth-password').value;
@@ -3353,22 +3180,11 @@
             const submit = document.getElementById('auth-submit');
             const message = document.getElementById('auth-message');
             message.textContent = '';
-            if (authMethod === 'phone') {
-                const phone = validateMainlandPhone(document.getElementById('auth-phone').value);
-                const code = document.getElementById('auth-sms-code').value.trim();
-                if (!phone) {
-                    message.textContent = homeCopy[homeLang].phoneInvalid;
-                    return;
-                }
-                if (!code) {
-                    message.textContent = homeCopy[homeLang].phoneRequired;
-                    return;
-                }
-            } else if (!email || !password) {
+            if (!email || !password) {
                 message.textContent = homeCopy[homeLang].authRequired;
                 return;
             }
-            if (authMethod === 'email' && authMode === 'register' && password !== confirmPassword) {
+            if (authMode === 'register' && password !== confirmPassword) {
                 message.textContent = homeCopy[homeLang].passwordMismatch;
                 return;
             }
@@ -3390,7 +3206,7 @@
                 }
                 localStorage.setItem(HOME_SESSION_KEY, JSON.stringify({
                     email: data.user?.email || email,
-                    phone: data.user?.phone || document.getElementById('auth-phone').value.trim() || '',
+                    phone: data.user?.phone || '',
                     name: data.user?.name || data.user?.display_name || '',
                     display_name: data.user?.display_name || data.user?.name || '',
                     avatar_url: data.user?.avatar_url || '',

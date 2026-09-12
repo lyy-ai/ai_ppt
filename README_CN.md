@@ -376,10 +376,6 @@ PPT Master 会优先读取当前进程环境变量，然后按顺序读取第一
 
 ---
 
-## 贡献
-
-详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
-
 ## 开源协议
 
 [MIT](LICENSE)
